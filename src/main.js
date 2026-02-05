@@ -17,6 +17,37 @@ const createWindow = () => {
     },
   });
 
+  // Handle HID device selection
+  mainWindow.webContents.session.on('select-hid-device', (event, details, callback) => {
+    event.preventDefault();
+    if (details.deviceList && details.deviceList.length > 0) {
+      // Auto-select the first Wii Remote if found
+      const wiiRemote = details.deviceList.find(d => d.vendorId === 0x057e);
+      if (wiiRemote) {
+        callback(wiiRemote.deviceId);
+      } else {
+        callback(details.deviceList[0].deviceId);
+      }
+    } else {
+      callback(null);
+    }
+  });
+
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
+    if (permission === 'hid') {
+      return true;
+    }
+    return false;
+  });
+
+  mainWindow.webContents.session.setDevicePermissionHandler((details) => {
+    // Grant permission to all Nintendo (0x057e) HID devices automatically
+    if (details.deviceType === 'hid' && details.device.vendorId === 0x057e) {
+      return true;
+    }
+    return false;
+  });
+
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
