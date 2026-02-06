@@ -1,57 +1,42 @@
 # Wii Playback Channel
 
-## Requirements (Windows + MSYS2 MinGW64)
+## Requirements
 - Windows 10/11
-- MSYS2 MinGW64 shell
+- Visual Studio with "Desktop development with C++" workload
+- Node.js
 
-## Navigate to the Project Directory
-Open the **MSYS2 MinGW64** shell and navigate to the project directory:
+## Build and Setup
 
-```bash
-cd /c
-cd /path/to/Wii-Playback-Channel
-# For example: `cd /c/Users/Administrator/Downloads/Wii-Playback-Channel`
+### 1. Build Native Components
+The app uses a native C++ helper for Wii Remote synchronization. This is automatically handled during packaging, but can be built manually using the provided script:
+
+```powershell
+# From PowerShell (requires Visual Studio installed)
+.\build_msvc.bat
 ```
 
-## Install Toolchain (MSYS2 MinGW64)
-Open the **MSYS2 MinGW64** shell and run (when prompted for the toolchain group, press Enter to install all members):
-
-```bash
-pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
-```
-+ Node as that is easier than switching between PowerShell and MSYS2 MinGW64:
-```bash
-pacman -S mingw-w64-x86_64-nodejs
-```
-
-## Build the Sync Helper CLI
-From the project root in **MSYS2 MinGW64**:
-
-```bash
-cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-```
-
-Copy the CLI and DLL to one of the locations the app scans:
-
-```bash
-mkdir -p bin/Release
-cp build/WiimoteSync.exe bin/Release/WiimoteSync.exe
-cp build/libWiimoteSync.dll bin/Release/WiimoteSync.dll
-cp /mingw64/bin/libstdc++-6.dll bin/Release/
-cp /mingw64/bin/libgcc_s_seh-1.dll bin/Release/
-cp /mingw64/bin/libwinpthread-1.dll bin/Release/
-```
-
-## Run the App
-From PowerShell:
-
+### 2. Run the App
 ```powershell
 npm install
 npm run start
 ```
 
+### 3. Create Distributables
+To package the app for distribution:
+
+```powershell
+# This will automatically build native components and package the app
+npm run make
+```
+
+The packaged app will be available in the `out/` folder. Note that ASAR is disabled to ensure consistent performance with the native binaries.
+
 ## Pairing Flow (No Dolphin Required)
-1. Press **1 + 2** on the Wii Remote.
+1. Press **1 + 2** on the Wii Remote (LEDs should blink).
 2. Click **Sync Wii Remote** in the app.
-3. Click **Connect Wii Remote** to start using it.
+3. Click **Connect Wii Remote** once the LEDs stop blinking to start using it.
+
+## Technical Details
+- **Sync Helper**: Built with MSVC and uses standard Windows Bluetooth APIs.
+- **Packaging**: Uses Electron Forge with custom whitelisting for `.vite` and `bin/Release` assets.
+- **Auto-Sync**: The app will automatically attempt to connect to already paired Wii Remotes on startup.

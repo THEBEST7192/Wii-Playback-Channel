@@ -92,3 +92,4 @@ typings/
 out/
 
 build/
+build_msvc

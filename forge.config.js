@@ -3,7 +3,22 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
 module.exports = {
   packagerConfig: {
-    asar: true,
+    asar: false,
+    ignore: (path) => {
+      if (!path) return false;
+      
+
+      if (path.startsWith('/.vite')) return false;
+      if (path.startsWith('/bin/Release')) return false;
+      
+      if (path === '/package.json') return false;
+
+      return true;
+    },
+    extraResource: [
+      'bin/Release/WiimoteSync.exe',
+      'bin/Release/WiimoteSync.dll',
+    ],
   },
   rebuildConfig: {},
   makers: [
@@ -59,8 +74,8 @@ module.exports = {
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
-      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
-      [FuseV1Options.OnlyLoadAppFromAsar]: true,
+      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: false,
+      [FuseV1Options.OnlyLoadAppFromAsar]: false,
     }),
   ],
 };
