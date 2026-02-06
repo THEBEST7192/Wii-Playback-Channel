@@ -1,5 +1,7 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import started from 'electron-squirrel-startup';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -16,7 +18,6 @@ const createWindow = () => {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-
   // Handle HID device selection
   mainWindow.webContents.session.on('select-hid-device', (event, details, callback) => {
     event.preventDefault();
@@ -59,11 +60,89 @@ const createWindow = () => {
   mainWindow.webContents.openDevTools();
 };
 
+const getSyncLibraryPath = () => {
+  const candidates = [
+    path.join(process.cwd(), 'bin', 'Release', 'WiimoteSync.dll'),
+    path.join(process.cwd(), 'WiimoteSync.dll'),
+    path.join(app.getAppPath(), 'bin', 'Release', 'WiimoteSync.dll'),
+    path.join(app.getAppPath(), 'WiimoteSync.dll'),
+  ];
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'WiimoteSync.dll'));
+  }
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+};
+
+const getSyncExecutablePath = () => {
+  const candidates = [
+    path.join(process.cwd(), 'bin', 'Release', 'WiimoteSync.exe'),
+    path.join(process.cwd(), 'WiimoteSync.exe'),
+    path.join(app.getAppPath(), 'bin', 'Release', 'WiimoteSync.exe'),
+    path.join(app.getAppPath(), 'WiimoteSync.exe'),
+  ];
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'WiimoteSync.exe'));
+  }
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+};
+
+const runSyncExecutable = (mode) => new Promise((resolve) => {
+  const exePath = getSyncExecutablePath();
+  if (exePath) {
+    const args = [];
+    if (mode === 'guest') args.push('guest');
+    if (mode === 'bond') args.push('bond');
+    const child = spawn(exePath, args, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+    child.stderr?.on('data', (data) => {
+      stderr += data.toString();
+    });
+    child.on('error', (error) => {
+      console.error('WiimoteSync.exe error:', error.message);
+      resolve({ ok: false, code: null, error: error.message, stdout, stderr });
+    });
+    child.on('close', (code) => {
+      if (stdout.trim()) console.log('WiimoteSync.exe stdout:\n', stdout.trim());
+      if (stderr.trim()) console.warn('WiimoteSync.exe stderr:\n', stderr.trim());
+      resolve({ ok: code === 0, code, stdout, stderr });
+    });
+    return;
+  }
+  const dllPath = getSyncLibraryPath();
+  if (!dllPath) {
+    resolve({ ok: false, code: null, error: 'WiimoteSync.exe not found' });
+    return;
+  }
+  const child = spawn('rundll32.exe', [`${dllPath},SyncWiimote`], { windowsHide: true });
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.on('data', (data) => {
+    stdout += data.toString();
+  });
+  child.stderr?.on('data', (data) => {
+    stderr += data.toString();
+  });
+  child.on('error', (error) => {
+    console.error('WiimoteSync.dll error:', error.message);
+    resolve({ ok: false, code: null, error: error.message, stdout, stderr });
+  });
+  child.on('close', (code) => {
+    if (stdout.trim()) console.log('WiimoteSync.dll stdout:\n', stdout.trim());
+    if (stderr.trim()) console.warn('WiimoteSync.dll stderr:\n', stderr.trim());
+    resolve({ ok: code === 0, code, stdout, stderr });
+  });
+});
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   createWindow();
+  ipcMain.handle('sync-wiimote', async (_e, mode) => runSyncExecutable(mode));
 
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.

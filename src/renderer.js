@@ -4,9 +4,24 @@ import { Wiimote } from './wiimote.js';
 const connectBtn = document.getElementById('connect-btn');
 const statusDiv = document.getElementById('status');
 const autosyncToggle = document.getElementById('autosync-toggle');
+const pairingHelp = document.getElementById('pairing-help');
+const syncBtn = document.getElementById('sync-btn');
 
 let wiimote = null;
 let autosyncEnabled = true; // Default to true for automatic pairing
+const systemApi = typeof window !== 'undefined' ? window.system : null;
+let syncInProgress = false;
+const guestToggle = document.getElementById('guest-toggle');
+
+const sleep = (ms) => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+if (systemApi?.syncWiimote) {
+  console.log('Native sync helper available');
+} else {
+  console.warn('Native sync helper not available');
+}
 
 // Load autosync preference
 const storedAutosync = localStorage.getItem('wiimote-autosync');
@@ -14,6 +29,19 @@ if (storedAutosync !== null) {
   autosyncEnabled = storedAutosync === 'true';
 }
 autosyncToggle.checked = autosyncEnabled;
+
+let guestMode = true;
+const storedGuest = localStorage.getItem('wiimote-guest-mode');
+if (storedGuest !== null) {
+  guestMode = storedGuest === 'true';
+}
+if (guestToggle) {
+  guestToggle.checked = guestMode;
+  guestToggle.addEventListener('change', (e) => {
+    guestMode = e.target.checked;
+    localStorage.setItem('wiimote-guest-mode', guestMode);
+  });
+}
 
 autosyncToggle.addEventListener('change', (e) => {
   autosyncEnabled = e.target.checked;
@@ -23,6 +51,29 @@ autosyncToggle.addEventListener('change', (e) => {
   }
 });
 
+
+if (syncBtn) {
+  syncBtn.addEventListener('click', async () => {
+    try {
+      const result = await runSync('manual');
+      if (result?.ok) {
+        statusDiv.textContent = 'Status: Sync complete. Click Connect Wii Remote.';
+        await sleep(800);
+        await connectAfterSync();
+      } else if (!result?.skipped) {
+        const devices = await navigator.hid.getDevices();
+        const alreadyConnected = devices.some(d => d.vendorId === 0x057e);
+        if (!alreadyConnected) {
+          statusDiv.textContent = `Status: Sync failed${result?.error ? ` - ${result.error}` : ''}`;
+        }
+      }
+    } catch (error) {
+      console.error('Sync failed:', error);
+      statusDiv.textContent = `Status: Error - ${error.message}`;
+    }
+  });
+}
+
 async function connectToDevice(device) {
   try {
     wiimote = new Wiimote(device);
@@ -31,7 +82,6 @@ async function connectToDevice(device) {
     await wiimote.init();
     
     statusDiv.textContent = `Status: Connected to ${device.productName}`;
-    connectBtn.disabled = true;
 
     wiimote.onButtonUpdate = (buttons) => {
       for (const [btn, pressed] of Object.entries(buttons)) {
@@ -47,7 +97,6 @@ async function connectToDevice(device) {
     device.addEventListener('forget', () => {
       wiimote = null;
       statusDiv.textContent = 'Status: Disconnected (Device forgotten)';
-      connectBtn.disabled = false;
     });
 
   } catch (error) {
@@ -64,7 +113,52 @@ async function attemptAutoConnect() {
   
   if (wiiRemote) {
     await connectToDevice(wiiRemote);
+    return;
   }
+  const result = await runSync('auto');
+  if (result?.ok) {
+    await connectAfterSync();
+  } else if (!result?.skipped && pairingHelp) {
+    pairingHelp.textContent = 'Pairing: use 1+2 for guest or Sync for bonding, then click Sync.';
+  }
+}
+
+async function connectAfterSync() {
+  for (let i = 0; i < 6; i += 1) {
+    await sleep(700);
+    const refreshed = await navigator.hid.getDevices();
+    const refreshedWii = refreshed.find(d => d.vendorId === 0x057e);
+    if (refreshedWii) {
+      await connectToDevice(refreshedWii);
+      return;
+    }
+  }
+}
+
+async function runSync(mode) {
+  if (!systemApi?.syncWiimote) {
+    return { ok: false, error: 'Sync helper not available' };
+  }
+  if (syncInProgress) {
+    console.log('Sync skipped: already in progress');
+    return { ok: false, skipped: true };
+  }
+  syncInProgress = true;
+  console.log('Invoking native sync helper', { mode, pairing: guestToggle ? (guestToggle.checked ? 'guest' : 'bond') : (guestMode ? 'guest' : 'bond') });
+  statusDiv.textContent = mode === 'auto'
+    ? 'Status: Auto-syncing Wii Remote...'
+    : 'Status: Syncing Wii Remote...';
+  const useGuest = guestToggle ? guestToggle.checked : guestMode;
+  const result = await systemApi.syncWiimote(useGuest ? 'guest' : 'bond');
+  syncInProgress = false;
+  console.log(`Sync result: ${result?.ok ? 'ok' : 'failed'}${result?.error ? ` (${result.error})` : ''}`);
+  if (result?.stdout) {
+    console.log('Sync stdout:\n' + result.stdout.trim());
+  }
+  if (result?.stderr) {
+    console.warn('Sync stderr:\n' + result.stderr.trim());
+  }
+  return result;
 }
 
 connectBtn.addEventListener('click', async () => {
