@@ -6,3 +6,24 @@ body {
   max-width: 38rem;
   padding: 2rem;
 }
+
+#controls-guide {
+  background: #f0f0f0;
+  padding: 1rem;
+  border-radius: 8px;
+  margin: 1.5rem 0;
+  border: 1px solid #ccc;
+}
+
+#controls-guide h2 {
+  margin-top: 0;
+  color: #333;
+}
+
+.mode-help p {
+  margin: 0.5rem 0;
+}
+
+.mode-help strong {
+  color: #007bff;
+}

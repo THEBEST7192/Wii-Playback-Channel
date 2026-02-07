@@ -4,6 +4,68 @@ import fs from 'node:fs';
 import { spawn, exec } from 'node:child_process';
 import started from 'electron-squirrel-startup';
 
+// Navigation control using PowerShell
+ipcMain.on('nav-control', (event, action) => {
+  let command;
+  switch (action) {
+    case 'click':
+      // Left click using mouse_event (0x02 = left down, 0x04 = left up)
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0002, 0, 0, 0, 0); $type::mouse_event(0x0004, 0, 0, 0, 0)"`;
+      break;
+    case 'scroll-up':
+      // Scroll up (positive value)
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0800, 0, 0, 120, 0)"`;
+      break;
+    case 'scroll-down':
+      // Scroll down (negative value)
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0800, 0, 0, -120, 0)"`;
+      break;
+    case 'back':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('%{LEFT}')"`; // Alt + Left
+      break;
+    case 'forward':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('%{RIGHT}')"`; // Alt + Right
+      break;
+    case 'refresh':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{F5}')"`;
+      break;
+    case 'tab':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x09, 0, 0, 0); $type::keybd_event(0x09, 0, 2, 0)"`;
+      break;
+    case 'shift-tab':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x10, 0, 0, 0); $type::keybd_event(0x09, 0, 0, 0); $type::keybd_event(0x09, 0, 2, 0); $type::keybd_event(0x10, 0, 2, 0)"`;
+      break;
+    case 'enter':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{ENTER}')"`;
+      break;
+    case 'escape':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{ESC}')"`;
+      break;
+    case 'page-up':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{PGUP}')"`;
+      break;
+    case 'page-down':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{PGDN}')"`;
+      break;
+    case 'zoom-in':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x11, 0, 0, 0); $type::keybd_event(0xBB, 0, 0, 0); $type::keybd_event(0xBB, 0, 2, 0); $type::keybd_event(0x11, 0, 2, 0)"`;
+      break;
+    case 'zoom-out':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x11, 0, 0, 0); $type::keybd_event(0xBD, 0, 0, 0); $type::keybd_event(0xBD, 0, 2, 0); $type::keybd_event(0x11, 0, 2, 0)"`;
+      break;
+    case 'zoom-reset':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x11, 0, 0, 0); $type::keybd_event(0x30, 0, 0, 0); $type::keybd_event(0x30, 0, 2, 0); $type::keybd_event(0x11, 0, 2, 0)"`;
+      break;
+    default: return;
+  }
+  
+  exec(command, (error) => {
+    if (error) {
+      console.error(`Navigation control error (${action}): ${error}`);
+    }
+  });
+});
+
 // Media control using PowerShell
 ipcMain.on('media-control', (event, action) => {
   let charCode;
