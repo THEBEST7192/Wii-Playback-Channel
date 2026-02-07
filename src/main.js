@@ -1,8 +1,21 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, exec } from 'node:child_process';
 import started from 'electron-squirrel-startup';
+
+// Volume control using PowerShell
+ipcMain.on('change-volume', (event, direction) => {
+  const command = direction === 'up' 
+    ? `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys([char]175)"` 
+    : `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys([char]174)"`;
+  
+  exec(command, (error) => {
+    if (error) {
+      console.error(`Volume change error: ${error}`);
+    }
+  });
+});
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {

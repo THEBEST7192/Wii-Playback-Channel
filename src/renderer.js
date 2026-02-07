@@ -74,6 +74,9 @@ if (syncBtn) {
   });
 }
 
+let lastVolumeChange = 0;
+const VOLUME_COOLDOWN = 150; // ms between volume changes to prevent process spam
+
 async function connectToDevice(device) {
   try {
     wiimote = new Wiimote(device);
@@ -84,6 +87,24 @@ async function connectToDevice(device) {
     statusDiv.textContent = `Status: Connected to ${device.productName}`;
 
     wiimote.onButtonUpdate = (buttons) => {
+      // Handle D-Pad inputs (with cooldown to prevent spam)
+      const now = Date.now();
+      if (now - lastVolumeChange > VOLUME_COOLDOWN) {
+        if (buttons.DOWN) {
+          systemApi.changeVolume('down');
+          lastVolumeChange = now;
+        } else if (buttons.UP) {
+          systemApi.changeVolume('up');
+          lastVolumeChange = now;
+        } else if (buttons.LEFT) {
+          console.log('D-Pad LEFT pressed');
+          lastVolumeChange = now;
+        } else if (buttons.RIGHT) {
+          console.log('D-Pad RIGHT pressed');
+          lastVolumeChange = now;
+        }
+      }
+
       for (const [btn, pressed] of Object.entries(buttons)) {
         const el = document.getElementById(`btn-${btn}`);
         if (el) {
