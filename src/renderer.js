@@ -75,7 +75,10 @@ if (syncBtn) {
 }
 
 let lastVolumeChange = 0;
-const VOLUME_COOLDOWN = 150; // ms between volume changes to prevent process spam
+const INITIAL_COOLDOWN = 250; // Initial delay
+const MIN_COOLDOWN = 50;     // Fastest repeat delay
+let currentCooldown = INITIAL_COOLDOWN;
+let lastButtonPressed = null;
 
 async function connectToDevice(device) {
   try {
@@ -87,22 +90,37 @@ async function connectToDevice(device) {
     statusDiv.textContent = `Status: Connected to ${device.productName}`;
 
     wiimote.onButtonUpdate = (buttons) => {
-      // Handle D-Pad inputs (with cooldown to prevent spam)
+      // Handle D-Pad inputs (with acceleration when holding)
       const now = Date.now();
-      if (now - lastVolumeChange > VOLUME_COOLDOWN) {
-        if (buttons.DOWN) {
-          systemApi.changeVolume('down');
+      const pressedButton = buttons.UP ? 'UP' : (buttons.DOWN ? 'DOWN' : (buttons.LEFT ? 'LEFT' : (buttons.RIGHT ? 'RIGHT' : null)));
+
+      if (pressedButton) {
+        if (pressedButton !== lastButtonPressed) {
+          // Reset cooldown on new button press
+          currentCooldown = INITIAL_COOLDOWN;
+          lastButtonPressed = pressedButton;
+          
+          // Execute immediately on first press
+          if (pressedButton === 'UP') systemApi.changeVolume('up');
+          else if (pressedButton === 'DOWN') systemApi.changeVolume('down');
+          else if (pressedButton === 'LEFT') console.log('D-Pad LEFT pressed');
+          else if (pressedButton === 'RIGHT') console.log('D-Pad RIGHT pressed');
+          
           lastVolumeChange = now;
-        } else if (buttons.UP) {
-          systemApi.changeVolume('up');
-          lastVolumeChange = now;
-        } else if (buttons.LEFT) {
-          console.log('D-Pad LEFT pressed');
-          lastVolumeChange = now;
-        } else if (buttons.RIGHT) {
-          console.log('D-Pad RIGHT pressed');
+        } else if (now - lastVolumeChange > currentCooldown) {
+          // Accelerate if holding
+          if (pressedButton === 'UP') systemApi.changeVolume('up');
+          else if (pressedButton === 'DOWN') systemApi.changeVolume('down');
+          else if (pressedButton === 'LEFT') console.log('D-Pad LEFT pressed');
+          else if (pressedButton === 'RIGHT') console.log('D-Pad RIGHT pressed');
+
+          // Reduce cooldown for next repeat (minimum 50ms)
+          currentCooldown = Math.max(MIN_COOLDOWN, currentCooldown * 0.8);
           lastVolumeChange = now;
         }
+      } else {
+        lastButtonPressed = null;
+        currentCooldown = INITIAL_COOLDOWN;
       }
 
       for (const [btn, pressed] of Object.entries(buttons)) {
