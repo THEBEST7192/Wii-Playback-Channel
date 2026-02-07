@@ -141,6 +141,15 @@ async function connectToDevice(device) {
         currentMode = currentMode === MODES.MEDIA ? MODES.NAV : MODES.MEDIA;
         lastButtonPressed = 'MODE';
         
+        // Update LEDs to indicate mode
+        if (wiimote) {
+          if (currentMode === MODES.MEDIA) {
+            wiimote.setLEDs(true, false, false, false); // LED 1 for Media
+          } else {
+            wiimote.setLEDs(false, true, false, false); // LED 2 for Nav
+          }
+        }
+
         // Update UI
         if (modeTitle) modeTitle.textContent = `Mode: ${currentMode}`;
         if (mediaHelp) mediaHelp.style.display = currentMode === MODES.MEDIA ? 'block' : 'none';
