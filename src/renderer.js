@@ -92,7 +92,7 @@ async function connectToDevice(device) {
     wiimote.onButtonUpdate = (buttons) => {
       // Handle D-Pad inputs (with acceleration when holding)
       const now = Date.now();
-      const pressedButton = buttons.UP ? 'UP' : (buttons.DOWN ? 'DOWN' : (buttons.LEFT ? 'LEFT' : (buttons.RIGHT ? 'RIGHT' : null)));
+      const pressedButton = buttons.UP ? 'UP' : (buttons.DOWN ? 'DOWN' : (buttons.LEFT ? 'LEFT' : (buttons.RIGHT ? 'RIGHT' : (buttons.A ? 'A' : null))));
 
       if (pressedButton) {
         if (pressedButton !== lastButtonPressed) {
@@ -103,20 +103,23 @@ async function connectToDevice(device) {
           // Execute immediately on first press
           if (pressedButton === 'UP') systemApi.changeVolume('up');
           else if (pressedButton === 'DOWN') systemApi.changeVolume('down');
-          else if (pressedButton === 'LEFT') console.log('D-Pad LEFT pressed');
-          else if (pressedButton === 'RIGHT') console.log('D-Pad RIGHT pressed');
+          else if (pressedButton === 'LEFT') systemApi.mediaControl('previous');
+          else if (pressedButton === 'RIGHT') systemApi.mediaControl('next');
+          else if (pressedButton === 'A') systemApi.mediaControl('play-pause');
           
           lastVolumeChange = now;
         } else if (now - lastVolumeChange > currentCooldown) {
-          // Accelerate if holding
+          // Accelerate if holding (only for Up/Down/Left/Right, not A)
           if (pressedButton === 'UP') systemApi.changeVolume('up');
           else if (pressedButton === 'DOWN') systemApi.changeVolume('down');
-          else if (pressedButton === 'LEFT') console.log('D-Pad LEFT pressed');
-          else if (pressedButton === 'RIGHT') console.log('D-Pad RIGHT pressed');
+          else if (pressedButton === 'LEFT') systemApi.mediaControl('previous');
+          else if (pressedButton === 'RIGHT') systemApi.mediaControl('next');
 
-          // Reduce cooldown for next repeat (minimum 50ms)
-          currentCooldown = Math.max(MIN_COOLDOWN, currentCooldown * 0.8);
-          lastVolumeChange = now;
+          if (pressedButton !== 'A') {
+            // Reduce cooldown for next repeat (minimum 50ms)
+            currentCooldown = Math.max(MIN_COOLDOWN, currentCooldown * 0.8);
+            lastVolumeChange = now;
+          }
         }
       } else {
         lastButtonPressed = null;

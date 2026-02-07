@@ -4,6 +4,24 @@ import fs from 'node:fs';
 import { spawn, exec } from 'node:child_process';
 import started from 'electron-squirrel-startup';
 
+// Media control using PowerShell
+ipcMain.on('media-control', (event, action) => {
+  let charCode;
+  switch (action) {
+    case 'play-pause': charCode = 179; break; // VK_MEDIA_PLAY_PAUSE
+    case 'next': charCode = 176; break;       // VK_MEDIA_NEXT_TRACK
+    case 'previous': charCode = 177; break;   // VK_MEDIA_PREV_TRACK
+    default: return;
+  }
+  
+  const command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys([char]${charCode})"`;
+  exec(command, (error) => {
+    if (error) {
+      console.error(`Media control error (${action}): ${error}`);
+    }
+  });
+});
+
 // Volume control using PowerShell
 ipcMain.on('change-volume', (event, direction) => {
   const command = direction === 'up' 
