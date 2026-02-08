@@ -89,10 +89,12 @@ let bActionTriggered = false;
 let aPressedTime = 0;
 let aActionTriggered = false;
 let prevButtons = {};
+let isAltDown = false;
 
 const MODES = {
   MEDIA: 'Media Playback',
-  NAV: 'Browser/Navigation'
+  NAV: 'Browser/Navigation',
+  PRES: 'Presentation'
 };
 let currentMode = MODES.MEDIA;
 
@@ -104,6 +106,9 @@ async function connectToDevice(device) {
     await wiimote.init();
     
     statusDiv.textContent = `Status: Connected to ${device.productName}`;
+
+    // Initialize LED for first mode
+    wiimote.setLEDs(true, false, false, false);
 
     wiimote.onButtonUpdate = (buttons) => {
       const now = Date.now();
@@ -120,16 +125,34 @@ async function connectToDevice(device) {
         console.log('A pressed - tracking for chord');
       }
 
+      if (!buttons.UP && prevButtons.UP) {
+        if (currentMode === MODES.PRES && isAltDown) {
+          // Keep isAltDown true, but reset lastButtonPressed so another press can trigger
+          if (lastButtonPressed === 'UP-ARROW') lastButtonPressed = null;
+        }
+      }
+      if (!buttons.DOWN && prevButtons.DOWN) {
+        if (currentMode === MODES.PRES && isAltDown) {
+          // Keep isAltDown true, but reset lastButtonPressed so another press can trigger
+          if (lastButtonPressed === 'DOWN-ARROW') lastButtonPressed = null;
+        }
+      }
+
       // Handle release actions for A and B
       if (!buttons.B && prevButtons.B) {
-        if (currentMode === MODES.NAV && !bActionTriggered && bPressedTime !== 0 && (now - bPressedTime < 1000)) {
+        if ((currentMode === MODES.NAV || currentMode === MODES.PRES) && !bActionTriggered && bPressedTime !== 0 && (now - bPressedTime < 1000)) {
           console.log('B released (no chord) - triggering refresh');
           systemApi.navControl('refresh');
         }
         bPressedTime = 0;
       }
       if (!buttons.A && prevButtons.A) {
-        if (currentMode === MODES.NAV && !aActionTriggered && aPressedTime !== 0 && (now - aPressedTime < 1000)) {
+        if (currentMode === MODES.PRES && isAltDown) {
+          console.log('A released in PRES mode - releasing Alt');
+          systemApi.navControl('alt-up');
+          isAltDown = false;
+        }
+        if ((currentMode === MODES.NAV || currentMode === MODES.PRES) && !aActionTriggered && aPressedTime !== 0 && (now - aPressedTime < 1000)) {
           console.log('A released (no chord) - triggering click');
           systemApi.navControl('click');
         }
@@ -138,15 +161,34 @@ async function connectToDevice(device) {
       
       // Mode Switching (- or +)
       if ((buttons.MINUS || buttons.PLUS) && lastButtonPressed !== 'MODE') {
-        currentMode = currentMode === MODES.MEDIA ? MODES.NAV : MODES.MEDIA;
+        // If we're switching modes while Alt is down, release it first
+        if (isAltDown) {
+          console.log('Mode switch detected while Alt down - releasing Alt');
+          systemApi.navControl('alt-up');
+          isAltDown = false;
+        }
+
+        if (buttons.PLUS) {
+          // Cycle forward: Media -> Nav -> Pres -> Media
+          if (currentMode === MODES.MEDIA) currentMode = MODES.NAV;
+          else if (currentMode === MODES.NAV) currentMode = MODES.PRES;
+          else currentMode = MODES.MEDIA;
+        } else {
+          // Cycle backward: Media -> Pres -> Nav -> Media
+          if (currentMode === MODES.MEDIA) currentMode = MODES.PRES;
+          else if (currentMode === MODES.PRES) currentMode = MODES.NAV;
+          else currentMode = MODES.MEDIA;
+        }
         lastButtonPressed = 'MODE';
         
         // Update LEDs to indicate mode
         if (wiimote) {
           if (currentMode === MODES.MEDIA) {
-            wiimote.setLEDs(true, false, false, false); // LED 1 for Media
+            wiimote.setLEDs(true, false, false, false); // LED 1
+          } else if (currentMode === MODES.NAV) {
+            wiimote.setLEDs(false, true, false, false); // LED 2
           } else {
-            wiimote.setLEDs(false, true, false, false); // LED 2 for Nav
+            wiimote.setLEDs(false, false, true, false); // LED 3 for Presentation
           }
         }
 
@@ -154,6 +196,9 @@ async function connectToDevice(device) {
         if (modeTitle) modeTitle.textContent = `Mode: ${currentMode}`;
         if (mediaHelp) mediaHelp.style.display = currentMode === MODES.MEDIA ? 'block' : 'none';
         if (navHelp) navHelp.style.display = currentMode === MODES.NAV ? 'block' : 'none';
+        
+        const presHelp = document.getElementById('pres-controls');
+        if (presHelp) presHelp.style.display = currentMode === MODES.PRES ? 'block' : 'none';
         
         statusDiv.textContent = `Mode: ${currentMode}`;
         console.log(`Switched to mode: ${currentMode}`);
@@ -164,7 +209,7 @@ async function connectToDevice(device) {
       }
 
       // Navigation Mode chording detection
-      if (currentMode === MODES.NAV) {
+      if (currentMode === MODES.NAV || currentMode === MODES.PRES) {
         if (buttons.B && (buttons.LEFT || buttons.RIGHT || buttons.UP || buttons.DOWN || buttons.A)) {
           bActionTriggered = true;
         }
@@ -215,6 +260,30 @@ async function connectToDevice(device) {
         }
         else if (buttons.ONE) pressedButton = 'ZOOM-RESET';
         else if (buttons.TWO) pressedButton = 'ESCAPE';
+      } else if (currentMode === MODES.PRES) {
+        // Presentation Mode
+        if (buttons.LEFT) pressedButton = 'LEFT-ARROW';
+        else if (buttons.RIGHT) pressedButton = 'RIGHT-ARROW';
+          else if (buttons.UP) {
+            if (!isAltDown) {
+              systemApi.navControl('alt-tab-start');
+              isAltDown = true;
+            }
+            pressedButton = 'UP-ARROW';
+          }
+          else if (buttons.DOWN) {
+            if (!isAltDown) {
+              systemApi.navControl('alt-tab-start');
+              isAltDown = true;
+            }
+            pressedButton = 'DOWN-ARROW';
+          }
+        else if (buttons.A) {
+          if (buttons.B) pressedButton = 'CLOSE-WINDOW';
+          else pressedButton = 'A';
+        }
+        else if (buttons.B) pressedButton = 'B';
+        else if (buttons.HOME) pressedButton = 'START-PRES';
       } else {
         // Media Mode (Standard mapping)
         pressedButton = buttons.UP ? 'UP' : 
@@ -230,7 +299,9 @@ async function connectToDevice(device) {
           // Reset cooldown on new button press
           currentCooldown = (pressedButton === 'UP' || pressedButton === 'DOWN') && currentMode === MODES.NAV 
             ? SCROLL_COOLDOWN 
-            : INITIAL_COOLDOWN;
+            : ((pressedButton === 'UP-ARROW' || pressedButton === 'DOWN-ARROW') && currentMode === MODES.PRES
+                ? 250 // Slightly faster but still limited for window switching
+                : INITIAL_COOLDOWN);
             
           lastButtonPressed = pressedButton;
           
@@ -241,7 +312,7 @@ async function connectToDevice(device) {
             else if (pressedButton === 'LEFT') systemApi.mediaControl('previous');
             else if (pressedButton === 'RIGHT') systemApi.mediaControl('next');
             else if (pressedButton === 'A') systemApi.mediaControl('play-pause');
-          } else {
+          } else if (currentMode === MODES.NAV) {
             // Navigation Mode
             if (pressedButton === 'UP') systemApi.navControl('scroll-up');
             else if (pressedButton === 'DOWN') systemApi.navControl('scroll-down');
@@ -270,49 +341,79 @@ async function connectToDevice(device) {
               // Don't trigger B (Refresh) immediately, wait for release
               console.log('B button held (modifier candidate)');
             }
+          } else if (currentMode === MODES.PRES) {
+            // Presentation Mode
+            if (pressedButton === 'LEFT-ARROW') systemApi.navControl('left-arrow');
+            else if (pressedButton === 'RIGHT-ARROW') systemApi.navControl('right-arrow');
+            else if (pressedButton === 'CLOSE-WINDOW') systemApi.navControl('close-window');
+            else if (pressedButton === 'START-PRES') systemApi.navControl('start-presentation');
+            else if (pressedButton === 'UP-ARROW') systemApi.navControl('up-arrow');
+            else if (pressedButton === 'DOWN-ARROW') systemApi.navControl('down-arrow');
+          }
+            
+          lastVolumeChange = now;
+          } else if (now - lastVolumeChange > currentCooldown) {
+            // Accelerate if holding
+            if (currentMode === MODES.MEDIA) {
+              if (pressedButton === 'UP') systemApi.changeVolume('up');
+              else if (pressedButton === 'DOWN') systemApi.changeVolume('down');
+              else if (pressedButton === 'LEFT') systemApi.mediaControl('previous');
+              else if (pressedButton === 'RIGHT') systemApi.mediaControl('next');
+            } else if (currentMode === MODES.NAV) {
+              // Navigation Mode repeats
+              if (pressedButton === 'UP') systemApi.navControl('scroll-up');
+              else if (pressedButton === 'DOWN') systemApi.navControl('scroll-down');
+              else if (pressedButton === 'TAB') {
+                console.log('Sending TAB (repeat)');
+                systemApi.navControl('tab');
+              }
+              else if (pressedButton === 'SHIFT-TAB') {
+                console.log('Sending SHIFT-TAB (repeat)');
+                systemApi.navControl('shift-tab');
+              }
+              else if (pressedButton === 'PAGE-UP') systemApi.navControl('page-up');
+              else if (pressedButton === 'PAGE-DOWN') systemApi.navControl('page-down');
+              else if (pressedButton === 'ZOOM-IN') systemApi.navControl('zoom-in');
+              else if (pressedButton === 'ZOOM-OUT') systemApi.navControl('zoom-out');
+            } else if (currentMode === MODES.PRES) {
+              // Presentation Mode repeats
+              if (pressedButton === 'LEFT-ARROW') systemApi.navControl('left-arrow');
+              else if (pressedButton === 'RIGHT-ARROW') systemApi.navControl('right-arrow');
+              else if (pressedButton === 'UP-ARROW') systemApi.navControl('up-arrow');
+              else if (pressedButton === 'DOWN-ARROW') systemApi.navControl('down-arrow');
+            }
+
+            // Reduce cooldown for next repeat (only for certain buttons)
+            const accelButtons = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'TAB', 'SHIFT-TAB', 'PAGE-UP', 'PAGE-DOWN', 'ZOOM-IN', 'ZOOM-OUT', 'LEFT-ARROW', 'RIGHT-ARROW'];
+            if (accelButtons.includes(pressedButton)) {
+              if (currentMode === MODES.NAV && (pressedButton === 'UP' || pressedButton === 'DOWN')) {
+                currentCooldown = SCROLL_COOLDOWN; // Keep scroll constant and fast
+              } else {
+                currentCooldown = Math.max(MIN_COOLDOWN, currentCooldown * 0.8);
+              }
+              lastVolumeChange = now;
+            }
+          }
+        } else if (lastButtonPressed !== 'MODE') {
+          // Button released
+          if (lastButtonPressed === 'B' && (currentMode === MODES.NAV || currentMode === MODES.PRES)) {
+            // If B was released and not used as a modifier, trigger refresh
+            if (!bActionTriggered && bPressedTime !== 0 && (now - bPressedTime < 1000)) {
+              console.log('B released - triggering refresh');
+              systemApi.navControl('refresh');
+            }
+          }
+          else if (lastButtonPressed === 'A' && (currentMode === MODES.NAV || currentMode === MODES.PRES)) {
+            // If A was released and not used as a modifier, trigger click
+            if (!aActionTriggered && aPressedTime !== 0 && (now - aPressedTime < 1000)) {
+              console.log('A released - triggering click');
+              systemApi.navControl('click');
+            }
           }
           
-          lastVolumeChange = now;
-        } else if (now - lastVolumeChange > currentCooldown) {
-          // Accelerate if holding
-          if (currentMode === MODES.MEDIA) {
-            if (pressedButton === 'UP') systemApi.changeVolume('up');
-            else if (pressedButton === 'DOWN') systemApi.changeVolume('down');
-            else if (pressedButton === 'LEFT') systemApi.mediaControl('previous');
-            else if (pressedButton === 'RIGHT') systemApi.mediaControl('next');
-          } else {
-            // Navigation Mode repeats
-            if (pressedButton === 'UP') systemApi.navControl('scroll-up');
-            else if (pressedButton === 'DOWN') systemApi.navControl('scroll-down');
-            else if (pressedButton === 'TAB') {
-              console.log('Sending TAB (repeat)');
-              systemApi.navControl('tab');
-            }
-            else if (pressedButton === 'SHIFT-TAB') {
-              console.log('Sending SHIFT-TAB (repeat)');
-              systemApi.navControl('shift-tab');
-            }
-            else if (pressedButton === 'PAGE-UP') systemApi.navControl('page-up');
-            else if (pressedButton === 'PAGE-DOWN') systemApi.navControl('page-down');
-            else if (pressedButton === 'ZOOM-IN') systemApi.navControl('zoom-in');
-            else if (pressedButton === 'ZOOM-OUT') systemApi.navControl('zoom-out');
-          }
-
-          // Reduce cooldown for next repeat (only for certain buttons)
-          const accelButtons = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'TAB', 'SHIFT-TAB', 'PAGE-UP', 'PAGE-DOWN', 'ZOOM-IN', 'ZOOM-OUT'];
-          if (accelButtons.includes(pressedButton)) {
-            if (currentMode === MODES.NAV && (pressedButton === 'UP' || pressedButton === 'DOWN')) {
-              currentCooldown = SCROLL_COOLDOWN; // Keep scroll constant and fast
-            } else {
-              currentCooldown = Math.max(MIN_COOLDOWN, currentCooldown * 0.8);
-            }
-            lastVolumeChange = now;
-          }
+          lastButtonPressed = null;
+          currentCooldown = INITIAL_COOLDOWN;
         }
-      } else if (lastButtonPressed !== 'MODE') {
-        lastButtonPressed = null;
-        currentCooldown = INITIAL_COOLDOWN;
-      }
 
       // Update button state history
       prevButtons = { ...buttons };

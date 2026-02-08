@@ -26,7 +26,47 @@ ipcMain.on('nav-control', (event, action) => {
     case 'forward':
       command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('%{RIGHT}')"`; // Alt + Right
       break;
+    case 'left-arrow':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{LEFT}')"`;
+      break;
+    case 'right-arrow':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{RIGHT}')"`;
+      break;
+    case 'up-arrow':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{UP}')"`;
+      break;
+    case 'down-arrow':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{DOWN}')"`;
+      break;
+    case 'close-window':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('%{F4}')"`; // Alt + F4
+      break;
+    case 'next-window':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('%{TAB}')"`; // Alt + Tab
+      break;
+    case 'prev-window':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('%+{TAB}')"`; // Alt + Shift + Tab
+      break;
+    case 'alt-down':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x12, 0, 0, 0)"`;
+      break;
+    case 'alt-up':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x12, 0, 2, 0)"`;
+      break;
+    case 'alt-tab-start':
+      // Atomically hold Alt and tap Tab
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x12, 0, 0, 0); $type::keybd_event(0x09, 0, 0, 0); $type::keybd_event(0x09, 0, 2, 0)"`;
+      break;
+    case 'tab-only':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x09, 0, 0, 0); $type::keybd_event(0x09, 0, 2, 0)"`;
+      break;
+    case 'shift-tab-only':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x10, 0, 0, 0); $type::keybd_event(0x09, 0, 0, 0); $type::keybd_event(0x09, 0, 2, 0); $type::keybd_event(0x10, 0, 2, 0)"`;
+      break;
     case 'refresh':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{F5}')"`;
+      break;
+    case 'start-presentation':
       command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{F5}')"`;
       break;
     case 'tab':
