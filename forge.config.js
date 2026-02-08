@@ -7,12 +7,18 @@ module.exports = {
     ignore: (path) => {
       if (!path) return false;
       
+      const allowedPaths = [
+        '/package.json',
+        '/keyboard.html',
+        '/node_modules/simple-keyboard',
+      ];
 
+      const isAllowedPath = allowedPaths.some(p => path === p || path.startsWith(p + '/'));
+      const isAllowedParent = allowedPaths.some(p => p.startsWith(path + '/'));
+      if (isAllowedPath || isAllowedParent) return false;
       if (path.startsWith('/.vite')) return false;
       if (path.startsWith('/bin/Release')) return false;
       
-      if (path === '/package.json') return false;
-
       return true;
     },
     extraResource: [

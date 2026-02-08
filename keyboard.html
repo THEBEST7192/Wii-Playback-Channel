@@ -2,6 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
+    <link rel="stylesheet" href="./node_modules/simple-keyboard/build/css/index.css">
     <title>Wii Keyboard</title>
     <style>
         body {
@@ -35,7 +36,6 @@
         <div class="simple-keyboard"></div>
     </div>
     <script src="./node_modules/simple-keyboard/build/index.js"></script>
-    <link rel="stylesheet" href="./node_modules/simple-keyboard/build/css/index.css">
     <script>
         const { ipcRenderer } = require('electron');
         const Keyboard = window.SimpleKeyboard.default;

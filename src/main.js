@@ -186,7 +186,11 @@ function createKeyboardWindow() {
     show: false
   });
 
-  keyboardWindow.loadFile(path.join(process.cwd(), 'keyboard.html'));
+  const keyboardPath = app.isPackaged 
+    ? path.join(process.resourcesPath, 'app', 'keyboard.html')
+    : path.join(process.cwd(), 'keyboard.html');
+    
+  keyboardWindow.loadFile(keyboardPath);
   
   keyboardWindow.on('closed', () => {
     keyboardWindow = null;
@@ -265,6 +269,12 @@ const createWindow = () => {
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
+
+  mainWindow.on('closed', () => {
+    if (keyboardWindow) {
+      keyboardWindow.close();
+    }
+  });
 };
 
 const getSyncLibraryPath = () => {
