@@ -11,6 +11,8 @@ const syncBtn = document.getElementById('sync-btn');
 const modeTitle = document.getElementById('current-mode-title');
 const mediaHelp = document.getElementById('media-controls');
 const navHelp = document.getElementById('nav-controls');
+const wiimoteDisplay = document.getElementById('wiimote-display');
+let wiimoteSvgInitialized = false;
 
 let wiimote = null;
 let autosyncEnabled = true; // Default to true for automatic pairing
@@ -172,6 +174,75 @@ function initKeyboard() {
   updateKeyboardSelection();
 }
 
+async function initWiimoteDisplay() {
+  if (!wiimoteDisplay || wiimoteSvgInitialized) return;
+
+  const url = new URL('./assets/wiimote.svg', import.meta.url);
+  const response = await fetch(url);
+  const svgText = await response.text();
+  wiimoteDisplay.innerHTML = svgText;
+
+  const dpadImg = document.createElement('img');
+  dpadImg.id = 'wiimote-dpad';
+  dpadImg.alt = 'D-Pad';
+  dpadImg.src = new URL('./assets/dpad.svg', import.meta.url).toString();
+  wiimoteDisplay.appendChild(dpadImg);
+
+  wiimoteSvgInitialized = true;
+}
+
+function updateWiimoteDisplayState(buttons) {
+  if (!wiimoteDisplay || !wiimoteSvgInitialized) return;
+
+  const buttonIdByName = {
+    A: 'wiimote-btn-A',
+    B: 'wiimote-btn-B',
+    HOME: 'wiimote-btn-HOME',
+    PLUS: 'wiimote-btn-PLUS',
+    MINUS: 'wiimote-btn-MINUS'
+  };
+
+  for (const [btn, id] of Object.entries(buttonIdByName)) {
+    const el = wiimoteDisplay.querySelector(`#${id}`);
+    if (!el) continue;
+    el.classList.toggle('wiimote-held', Boolean(buttons?.[btn]));
+  }
+
+  const dpad = wiimoteDisplay.querySelector('#wiimote-dpad');
+  if (!dpad) return;
+
+  const isUp = Boolean(buttons?.UP);
+  const isDown = Boolean(buttons?.DOWN);
+  const isLeft = Boolean(buttons?.LEFT);
+  const isRight = Boolean(buttons?.RIGHT);
+
+  let dpadSrc = new URL('./assets/dpad.svg', import.meta.url).toString();
+  let rotationDeg = 0;
+
+  if (isUp && isDown) {
+    dpadSrc = new URL('./assets/dpad_both.svg', import.meta.url).toString();
+  } else if (isLeft && isRight) {
+    dpadSrc = new URL('./assets/dpad_both.svg', import.meta.url).toString();
+    rotationDeg = 90;
+  } else if (isUp) {
+    dpadSrc = new URL('./assets/dpad_up.svg', import.meta.url).toString();
+  } else if (isRight) {
+    dpadSrc = new URL('./assets/dpad_up.svg', import.meta.url).toString();
+    rotationDeg = 90;
+  } else if (isDown) {
+    dpadSrc = new URL('./assets/dpad_up.svg', import.meta.url).toString();
+    rotationDeg = 180;
+  } else if (isLeft) {
+    dpadSrc = new URL('./assets/dpad_up.svg', import.meta.url).toString();
+    rotationDeg = -90;
+  }
+
+  if (dpad.src !== dpadSrc) {
+    dpad.src = dpadSrc;
+  }
+  dpad.style.transform = `rotate(${rotationDeg}deg)`;
+}
+
 function handlePhysicalKeyPress(button) {
   if (button === "{space}") {
     systemApi.navControl('space');
@@ -242,6 +313,7 @@ function typeSelectedKey() {
 // Call init on load
 window.addEventListener('DOMContentLoaded', () => {
   initKeyboard();
+  initWiimoteDisplay();
 });
 
 async function connectToDevice(device) {
@@ -359,7 +431,6 @@ async function connectToDevice(device) {
           setTimeout(updateKeyboardSelection, 100);
         }
         
-        statusDiv.textContent = `Mode: ${currentMode}`;
         console.log(`Switched to mode: ${currentMode}`);
         return;
       }
@@ -668,15 +739,7 @@ async function connectToDevice(device) {
 
       // Update button state history
       prevButtons = { ...buttons };
-
-      for (const [btn, pressed] of Object.entries(buttons)) {
-        const el = document.getElementById(`btn-${btn}`);
-        if (el) {
-          el.textContent = `${btn}: ${pressed}`;
-          el.style.fontWeight = pressed ? 'bold' : 'normal';
-          el.style.color = pressed ? 'red' : 'black';
-        }
-      }
+      updateWiimoteDisplayState(buttons);
     };
 
     device.addEventListener('forget', () => {

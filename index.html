@@ -6,77 +6,70 @@
   </head>
   <body>
     <h1>Wii Remote Connection</h1>
-    <button id="connect-btn">Connect Wii Remote</button>
-    <div>
-      <label>
-        <input type="checkbox" id="autosync-toggle"> Auto-sync (Connect automatically)
-      </label>
-    </div>
-    <button id="sync-btn">Sync Wii Remote</button>
-    <div>
-      <label>
-        <input type="checkbox" id="guest-toggle"> Use guest pairing (1+2)
-      </label>
-    </div>
-    <div id="pairing-help">Pairing: use 1+2 for guest or Sync for bonding, then click Sync, then Connect.</div>
-    <div id="status">Status: Disconnected</div>
     
-    <div id="controls-guide">
-      <h2 id="current-mode-title">Mode: Media Playback</h2>
-      <div class="mode-help" id="media-controls">
-        <p><strong>+ / -</strong>: Switch Mode</p>
-        <p><strong>A</strong>: Play / Pause</p>
-        <p><strong>D-Pad Up/Down</strong>: Volume Up / Down</p>
-        <p><strong>D-Pad Left/Right</strong>: Previous / Next Track</p>
-      </div>
-      <div class="mode-help" id="nav-controls" style="display: none;">
-        <p><strong>+ / -</strong>: Switch Mode</p>
-        <p><strong>A</strong>: Left Click (Select)</p>
-          <p><strong>B (Trigger)</strong>: Refresh Page (F5)</p>
-          <p><strong>B + A</strong>: Press Enter</p>
-          <p><strong>B + Left/Right</strong>: Back / Forward</p>
-          <p><strong>B + Up/Down</strong>: Zoom In / Out</p>
-          <p><strong>A + Up/Down</strong>: Page Up / Down</p>
-          <p><strong>D-Pad Up/Down</strong>: Scroll Up / Down</p>
-          <p><strong>D-Pad Left/Right</strong>: Prev / Next Item (Tab)</p>
-          <p><strong>1 / 2</strong>: Zoom Reset / Escape</p>
+    <div id="main-layout">
+      <div id="left-column">
+        <button id="connect-btn">Connect Wii Remote</button>
+        <div>
+          <label>
+            <input type="checkbox" id="autosync-toggle"> Auto-sync (Connect automatically)
+          </label>
         </div>
-        <div class="mode-help" id="pres-controls" style="display: none;">
-          <p><strong>+ / -</strong>: Switch Mode</p>
-          <p><strong>HOME</strong>: Start Presentation (F5)</p>
-          <p><strong>A</strong>: Left Click (Select)</p>
-          <p><strong>B (Trigger)</strong>: Refresh Page (F5)</p>
-          <p><strong>B + A</strong>: Close Window (Alt+F4)</p>
-          <p><strong>D-Pad Left/Right</strong>: Left / Right Arrow</p>
-          <p><strong>D-Pad Up/Down</strong>: Switch Window (Hold D-Pad, release A to select)</p>
+        <button id="sync-btn">Sync Wii Remote</button>
+        <div>
+          <label>
+            <input type="checkbox" id="guest-toggle"> Use guest pairing (1+2)
+          </label>
         </div>
-        <div class="mode-help" id="kbd-controls" style="display: none;">
-          <p><strong>+ / -</strong>: Switch Mode</p>
-          <p><strong>D-Pad</strong>: Move Selection</p>
-          <p><strong>B + D-Pad</strong>: System Arrow Keys</p>
-          <p><strong>A</strong>: Type Character</p>
-          <p><strong>B</strong>: Backspace</p>
-          <p><strong>1</strong>: Space</p>
-          <p><strong>2</strong>: Enter</p>
-          <p><strong>HOME</strong>: Toggle Shift</p>
-        </div>
-    </div>
+        <div id="pairing-help">Pairing: use 1+2 for guest or Sync for bonding, then click Sync, then Connect.</div>
+        <div id="status">Status: Disconnected</div>
 
-    <div id="buttons">
-      <h3>Buttons:</h3>
-      <ul id="button-list">
-        <li id="btn-A">A: false</li>
-        <li id="btn-B">B: false</li>
-        <li id="btn-ONE">1: false</li>
-        <li id="btn-TWO">2: false</li>
-        <li id="btn-PLUS">Plus: false</li>
-        <li id="btn-MINUS">Minus: false</li>
-        <li id="btn-HOME">Home: false</li>
-        <li id="btn-UP">Up: false</li>
-        <li id="btn-DOWN">Down: false</li>
-        <li id="btn-LEFT">Left: false</li>
-        <li id="btn-RIGHT">Right: false</li>
-      </ul>
+        <div id="controls-guide">
+          <h2 id="current-mode-title">Mode: Media Playback</h2>
+          <div class="mode-help" id="media-controls">
+            <p><strong>+ / -</strong>: Switch Mode</p>
+            <p><strong>A</strong>: Play / Pause</p>
+            <p><strong>D-Pad Up/Down</strong>: Volume Up / Down</p>
+            <p><strong>D-Pad Left/Right</strong>: Previous / Next Track</p>
+          </div>
+          <div class="mode-help" id="nav-controls" style="display: none;">
+            <p><strong>+ / -</strong>: Switch Mode</p>
+            <p><strong>A</strong>: Left Click (Select)</p>
+              <p><strong>B (Trigger)</strong>: Refresh Page (F5)</p>
+              <p><strong>B + A</strong>: Press Enter</p>
+              <p><strong>B + Left/Right</strong>: Back / Forward</p>
+              <p><strong>B + Up/Down</strong>: Zoom In / Out</p>
+              <p><strong>A + Up/Down</strong>: Page Up / Down</p>
+              <p><strong>D-Pad Up/Down</strong>: Scroll Up / Down</p>
+              <p><strong>D-Pad Left/Right</strong>: Prev / Next Item (Tab)</p>
+              <p><strong>1 / 2</strong>: Zoom Reset / Escape</p>
+            </div>
+            <div class="mode-help" id="pres-controls" style="display: none;">
+              <p><strong>+ / -</strong>: Switch Mode</p>
+              <p><strong>HOME</strong>: Start Presentation (F5)</p>
+              <p><strong>A</strong>: Left Click (Select)</p>
+              <p><strong>B (Trigger)</strong>: Refresh Page (F5)</p>
+              <p><strong>B + A</strong>: Close Window (Alt+F4)</p>
+              <p><strong>D-Pad Left/Right</strong>: Left / Right Arrow</p>
+              <p><strong>D-Pad Up/Down</strong>: Switch Window (Hold D-Pad, release A to select)</p>
+            </div>
+            <div class="mode-help" id="kbd-controls" style="display: none;">
+              <p><strong>+ / -</strong>: Switch Mode</p>
+              <p><strong>D-Pad</strong>: Move Selection</p>
+              <p><strong>B + D-Pad</strong>: System Arrow Keys</p>
+              <p><strong>A</strong>: Type Character</p>
+              <p><strong>B</strong>: Backspace</p>
+              <p><strong>1</strong>: Space</p>
+              <p><strong>2</strong>: Enter</p>
+              <p><strong>HOME</strong>: Toggle Shift</p>
+            </div>
+        </div>
+      </div>
+
+      <div id="active-display">
+        <h3>Buttons:</h3>
+        <div id="wiimote-display"></div>
+      </div>
     </div>
     <script type="module" src="/src/renderer.js"></script>
   </body>
