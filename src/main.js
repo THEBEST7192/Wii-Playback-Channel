@@ -1,8 +1,11 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawn, exec } from 'node:child_process';
 import started from 'electron-squirrel-startup';
+
+let mainWindow;
+let keyboardWindow;
 
 // Navigation control using PowerShell
 ipcMain.on('nav-control', (event, action) => {
@@ -96,12 +99,37 @@ ipcMain.on('nav-control', (event, action) => {
     case 'zoom-reset':
       command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Key\\" -Namespace \\"Win32Utils\\" -PassThru; $type::keybd_event(0x11, 0, 0, 0); $type::keybd_event(0x30, 0, 0, 0); $type::keybd_event(0x30, 0, 2, 0); $type::keybd_event(0x11, 0, 2, 0)"`;
       break;
+    case 'type':
+      // Handled by type-text channel
+      break;
+    case 'backspace':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('{BACKSPACE}')"`;
+      break;
+    case 'space':
+      command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys(' ')"`;
+      break;
     default: return;
   }
   
   exec(command, (error) => {
     if (error) {
       console.error(`Navigation control error (${action}): ${error}`);
+    }
+  });
+});
+
+// Typing control
+ipcMain.on('type-text', (event, text) => {
+  // Double escaping for PowerShell and handling slash/backslash
+  const escaped = text
+    .replace(/([+^%~(){}[\]])/g, '{$1}') // Escape SendKeys special chars
+    .replace(/'/g, "''")                 // Escape PowerShell single quotes
+    .replace(/\\/g, '\\\\');             // Escape backslashes for PowerShell string
+  
+  const command = `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys('${escaped}')"`;
+  exec(command, (error) => {
+    if (error) {
+      console.error(`Typing error: ${error}`);
     }
   });
 });
@@ -137,6 +165,52 @@ ipcMain.on('change-volume', (event, direction) => {
   });
 });
 
+// PIP Keyboard Window Management
+function createKeyboardWindow() {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  
+  keyboardWindow = new BrowserWindow({
+    width: 600,
+    height: 280,
+    x: width - 620, // Bottom right
+    y: height - 280,
+    frame: false,
+    alwaysOnTop: true,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    show: false
+  });
+
+  keyboardWindow.loadFile(path.join(process.cwd(), 'keyboard.html'));
+  
+  keyboardWindow.on('closed', () => {
+    keyboardWindow = null;
+  });
+}
+
+ipcMain.on('toggle-keyboard', (event, show) => {
+  if (!keyboardWindow) {
+    createKeyboardWindow();
+  }
+
+  if (show) {
+    keyboardWindow.showInactive(); // Show without taking focus
+  } else {
+    keyboardWindow.hide();
+  }
+});
+
+ipcMain.on('update-keyboard-selection', (event, selection) => {
+  if (keyboardWindow) {
+    keyboardWindow.webContents.send('set-selection', selection);
+  }
+});
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();
@@ -144,7 +218,7 @@ if (started) {
 
 const createWindow = () => {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
@@ -270,15 +344,10 @@ const runSyncExecutable = (mode) => new Promise((resolve) => {
   });
 });
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   createWindow();
   ipcMain.handle('sync-wiimote', async (_e, mode) => runSyncExecutable(mode));
 
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -286,14 +355,8 @@ app.whenReady().then(() => {
   });
 });
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.

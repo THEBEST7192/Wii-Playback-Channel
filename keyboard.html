@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Wii Keyboard</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            overflow: hidden;
+            font-family: sans-serif;
+            -webkit-app-region: drag;
+        }
+        #keyboard-wrapper {
+            -webkit-app-region: no-drag;
+        }
+        .hg-button.hg-selectedButton {
+            background: #007bff !important;
+            color: white !important;
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(0,123,255,0.8);
+        }
+        .hg-theme-default {
+            background-color: transparent !important;
+        }
+        .hg-button {
+            height: 45px !important;
+            font-size: 1.1rem !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="keyboard-wrapper">
+        <div class="simple-keyboard"></div>
+    </div>
+    <script src="./node_modules/simple-keyboard/build/index.js"></script>
+    <link rel="stylesheet" href="./node_modules/simple-keyboard/build/css/index.css">
+    <script>
+        const { ipcRenderer } = require('electron');
+        const Keyboard = window.SimpleKeyboard.default;
+
+        const keyboard = new Keyboard({
+            layout: {
+                default: [
+                    "1 2 3 4 5 6 7 8 9 0 - = {bksp}",
+                    "{tab} q w e r t y u i o p [ ] \\",
+                    "a s d f g h j k l ; ' {enter}",
+                    "{shift} z x c v b n m , . /",
+                    "{space}"
+                ],
+                shift: [
+                    "! @ # $ % ^ & * ( ) _ + {bksp}",
+                    "{tab} Q W E R T Y U I O P { } |",
+                    "A S D F G H J K L : \" {enter}",
+                    "{shift} Z X C V B N M < > ?",
+                    "{space}"
+                ]
+            }
+        });
+
+        ipcRenderer.on('set-selection', (event, data) => {
+            const { key, selectorKey, layout } = data;
+            
+            // Update layout if changed
+            if (layout && keyboard.options.layoutName !== layout) {
+                keyboard.setOptions({ layoutName: layout });
+            }
+
+            // Remove previous selection
+            document.querySelectorAll('.hg-selectedButton').forEach(el => {
+                el.classList.remove('hg-selectedButton');
+            });
+
+            if (key) {
+                const targetKey = selectorKey || key;
+                const button = document.querySelector(`[data-skbtn="${targetKey}"]`);
+                if (button) {
+                    button.classList.add('hg-selectedButton');
+                }
+            }
+        });
+    </script>
+</body>
+</html>

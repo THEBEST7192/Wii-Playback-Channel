@@ -1,5 +1,6 @@
 import './index.css';
 import { Wiimote } from './wiimote.js';
+import 'simple-keyboard/build/css/index.css';
 
 const connectBtn = document.getElementById('connect-btn');
 const statusDiv = document.getElementById('status');
@@ -86,6 +87,8 @@ let currentCooldown = INITIAL_COOLDOWN;
 let lastButtonPressed = null;
 let bPressedTime = 0;
 let bActionTriggered = false;
+let bUsedAsModifier = false;
+let bNextBShouldBeSlow = false;
 let aPressedTime = 0;
 let aActionTriggered = false;
 let prevButtons = {};
@@ -94,9 +97,152 @@ let isAltDown = false;
 const MODES = {
   MEDIA: 'Media Playback',
   NAV: 'Browser/Navigation',
-  PRES: 'Presentation'
+  PRES: 'Presentation',
+  KBD: 'Keyboard'
 };
 let currentMode = MODES.MEDIA;
+
+let isShifted = false;
+
+const KEYBOARD_LAYOUTS = {
+  default: [
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "{bksp}"],
+    ["{tab}", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]", "\\"],
+    ["a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "{enter}"],
+    ["{shift}", "z", "x", "c", "v", "b", "n", "m", ",", ".", "/"],
+    ["{space}"]
+  ],
+  shift: [
+    ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "{bksp}"],
+    ["{tab}", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "{", "}", "|"],
+    ["A", "S", "D", "F", "G", "H", "J", "K", "L", ":", "\"", "{enter}"],
+    ["{shift}", "Z", "X", "C", "V", "B", "N", "M", "<", ">", "?"],
+    ["{space}"]
+  ]
+};
+
+// Flattened index mapping to row/col for easier navigation
+let currentKbdRow = 0;
+let currentKbdCol = 0;
+let lastKbdPercent = 0; // Remembers horizontal percentage (0.0 to 1.0) for logical vertical snapping
+
+// Helper to get logical width percentage of a key in a row
+function getKeyWidths(row) {
+  // Simple approximation: standard keys are 1 unit, special keys are wider
+  return row.map(key => {
+    if (key === "{space}") return 5;
+    if (key === "{shift}" || key === "{enter}" || key === "{bksp}" || key === "{tab}") return 1.5;
+    return 1;
+  });
+}
+
+function getKeyPosition(row, col) {
+  const widths = getKeyWidths(row);
+  const totalWidth = widths.reduce((a, b) => a + b, 0);
+  let currentPos = 0;
+  for (let i = 0; i < col; i++) {
+    currentPos += widths[i];
+  }
+  // Return center position as percentage
+  return (currentPos + widths[col] / 2) / totalWidth;
+}
+
+function findClosestCol(row, targetPercent) {
+  const widths = getKeyWidths(row);
+  const totalWidth = widths.reduce((a, b) => a + b, 0);
+  let bestCol = 0;
+  let minDiff = Infinity;
+  let currentPos = 0;
+
+  for (let i = 0; i < row.length; i++) {
+    const center = (currentPos + widths[i] / 2) / totalWidth;
+    const diff = Math.abs(center - targetPercent);
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestCol = i;
+    }
+    currentPos += widths[i];
+  }
+  return bestCol;
+}
+
+function initKeyboard() {
+  const layout = isShifted ? KEYBOARD_LAYOUTS.shift : KEYBOARD_LAYOUTS.default;
+  lastKbdPercent = getKeyPosition(layout[currentKbdRow], currentKbdCol);
+  updateKeyboardSelection();
+}
+
+function handlePhysicalKeyPress(button) {
+  if (button === "{space}") {
+    systemApi.navControl('space');
+  } else if (button === "{enter}") {
+    systemApi.navControl('enter');
+  } else if (button === "{tab}") {
+    systemApi.navControl('tab');
+  } else if (button === "{bksp}") {
+    systemApi.navControl('backspace');
+  } else if (button === "{shift}") {
+    isShifted = !isShifted;
+    updateKeyboardSelection();
+  } else {
+    systemApi.typeText(button);
+  }
+}
+
+function updateKeyboardSelection() {
+  if (currentMode === MODES.KBD) {
+    const layout = isShifted ? KEYBOARD_LAYOUTS.shift : KEYBOARD_LAYOUTS.default;
+    const key = layout[currentKbdRow][currentKbdCol];
+    if (key) {
+      // Escape backslash for querySelector if it's the raw character
+      let selectorKey = key;
+      if (key === "\\") selectorKey = "\\\\";
+      systemApi.updateKeyboardSelection({
+        key: key,
+        selectorKey: selectorKey,
+        layout: isShifted ? 'shift' : 'default'
+      });
+    }
+  }
+}
+
+function moveKeyboardSelection(direction) {
+  const layout = isShifted ? KEYBOARD_LAYOUTS.shift : KEYBOARD_LAYOUTS.default;
+  const numRows = layout.length;
+
+  if (direction === 'RIGHT') {
+    currentKbdCol = (currentKbdCol + 1) % layout[currentKbdRow].length;
+    lastKbdPercent = getKeyPosition(layout[currentKbdRow], currentKbdCol);
+  }
+  else if (direction === 'LEFT') {
+    currentKbdCol = (currentKbdCol - 1 + layout[currentKbdRow].length) % layout[currentKbdRow].length;
+    lastKbdPercent = getKeyPosition(layout[currentKbdRow], currentKbdCol);
+  }
+  else if (direction === 'DOWN') {
+    currentKbdRow = (currentKbdRow + 1) % numRows;
+    // Snap to the key closest to the last recorded horizontal percentage
+    currentKbdCol = findClosestCol(layout[currentKbdRow], lastKbdPercent);
+  }
+  else if (direction === 'UP') {
+    currentKbdRow = (currentKbdRow - 1 + numRows) % numRows;
+    // Snap to the key closest to the last recorded horizontal percentage
+    currentKbdCol = findClosestCol(layout[currentKbdRow], lastKbdPercent);
+  }
+  updateKeyboardSelection();
+}
+
+function typeSelectedKey() {
+  const layout = isShifted ? KEYBOARD_LAYOUTS.shift : KEYBOARD_LAYOUTS.default;
+  const key = layout[currentKbdRow][currentKbdCol];
+  if (key) {
+    handlePhysicalKeyPress(key);
+  }
+}
+
+// Call init on load
+window.addEventListener('DOMContentLoaded', () => {
+  initKeyboard();
+});
 
 async function connectToDevice(device) {
   try {
@@ -117,6 +263,7 @@ async function connectToDevice(device) {
       if (buttons.B && !prevButtons.B) {
         bPressedTime = now;
         bActionTriggered = false;
+        bUsedAsModifier = false;
         console.log('B pressed - tracking for chord');
       }
       if (buttons.A && !prevButtons.A) {
@@ -140,10 +287,6 @@ async function connectToDevice(device) {
 
       // Handle release actions for A and B
       if (!buttons.B && prevButtons.B) {
-        if ((currentMode === MODES.NAV || currentMode === MODES.PRES) && !bActionTriggered && bPressedTime !== 0 && (now - bPressedTime < 1000)) {
-          console.log('B released (no chord) - triggering refresh');
-          systemApi.navControl('refresh');
-        }
         bPressedTime = 0;
       }
       if (!buttons.A && prevButtons.A) {
@@ -169,13 +312,15 @@ async function connectToDevice(device) {
         }
 
         if (buttons.PLUS) {
-          // Cycle forward: Media -> Nav -> Pres -> Media
+          // Cycle forward: Media -> Nav -> Pres -> KBD -> Media
           if (currentMode === MODES.MEDIA) currentMode = MODES.NAV;
           else if (currentMode === MODES.NAV) currentMode = MODES.PRES;
+          else if (currentMode === MODES.PRES) currentMode = MODES.KBD;
           else currentMode = MODES.MEDIA;
         } else {
-          // Cycle backward: Media -> Pres -> Nav -> Media
-          if (currentMode === MODES.MEDIA) currentMode = MODES.PRES;
+          // Cycle backward: Media -> KBD -> Pres -> Nav -> Media
+          if (currentMode === MODES.MEDIA) currentMode = MODES.KBD;
+          else if (currentMode === MODES.KBD) currentMode = MODES.PRES;
           else if (currentMode === MODES.PRES) currentMode = MODES.NAV;
           else currentMode = MODES.MEDIA;
         }
@@ -187,8 +332,10 @@ async function connectToDevice(device) {
             wiimote.setLEDs(true, false, false, false); // LED 1
           } else if (currentMode === MODES.NAV) {
             wiimote.setLEDs(false, true, false, false); // LED 2
+          } else if (currentMode === MODES.PRES) {
+            wiimote.setLEDs(false, false, true, false); // LED 3
           } else {
-            wiimote.setLEDs(false, false, true, false); // LED 3 for Presentation
+            wiimote.setLEDs(false, false, false, true); // LED 4 for Keyboard
           }
         }
 
@@ -199,6 +346,18 @@ async function connectToDevice(device) {
         
         const presHelp = document.getElementById('pres-controls');
         if (presHelp) presHelp.style.display = currentMode === MODES.PRES ? 'block' : 'none';
+
+        const kbdHelp = document.getElementById('kbd-controls');
+        if (kbdHelp) kbdHelp.style.display = currentMode === MODES.KBD ? 'block' : 'none';
+        
+        // Handle PIP Keyboard visibility
+        if (systemApi?.toggleKeyboard) {
+          systemApi.toggleKeyboard(currentMode === MODES.KBD);
+        }
+
+        if (currentMode === MODES.KBD) {
+          setTimeout(updateKeyboardSelection, 100);
+        }
         
         statusDiv.textContent = `Mode: ${currentMode}`;
         console.log(`Switched to mode: ${currentMode}`);
@@ -208,12 +367,13 @@ async function connectToDevice(device) {
         lastButtonPressed = null;
       }
 
-      // Navigation Mode chording detection
-      if (currentMode === MODES.NAV || currentMode === MODES.PRES) {
+      // Navigation and Keyboard Mode chording detection
+      if (currentMode === MODES.NAV || currentMode === MODES.PRES || currentMode === MODES.KBD) {
         if (buttons.B && (buttons.LEFT || buttons.RIGHT || buttons.UP || buttons.DOWN || buttons.A)) {
           bActionTriggered = true;
+          bUsedAsModifier = true;
         }
-        if (buttons.A && (buttons.UP || buttons.DOWN || buttons.B)) {
+        if ((currentMode === MODES.NAV || currentMode === MODES.PRES) && buttons.A && (buttons.UP || buttons.DOWN || buttons.B)) {
           aActionTriggered = true;
         }
       }
@@ -282,8 +442,44 @@ async function connectToDevice(device) {
           if (buttons.B) pressedButton = 'CLOSE-WINDOW';
           else pressedButton = 'A';
         }
-        else if (buttons.B) pressedButton = 'B';
-        else if (buttons.HOME) pressedButton = 'START-PRES';
+        else if (buttons.HOME) {
+          if (currentMode === MODES.KBD) {
+            // Exit keyboard mode back to presentation or nav
+            currentMode = MODES.PRES;
+            // Update UI
+            if (modeTitle) modeTitle.textContent = `Mode: ${currentMode}`;
+            const kbdHelp = document.getElementById('kbd-controls');
+            if (kbdHelp) kbdHelp.style.display = 'none';
+            const kbdContainer = document.getElementById('keyboard-container');
+            if (kbdContainer) kbdContainer.style.display = 'none';
+            const presHelp = document.getElementById('pres-controls');
+            if (presHelp) presHelp.style.display = 'block';
+            if (wiimote) wiimote.setLEDs(false, false, true, false);
+          } else {
+            pressedButton = 'START-PRES';
+          }
+        }
+      } else if (currentMode === MODES.KBD) {
+        // Keyboard Mode
+        if (buttons.UP) {
+          pressedButton = buttons.B ? 'KBD-ARROW-UP' : 'KBD-UP';
+        } else if (buttons.DOWN) {
+          pressedButton = buttons.B ? 'KBD-ARROW-DOWN' : 'KBD-DOWN';
+        } else if (buttons.LEFT) {
+          pressedButton = buttons.B ? 'KBD-ARROW-LEFT' : 'KBD-LEFT';
+        } else if (buttons.RIGHT) {
+          pressedButton = buttons.B ? 'KBD-ARROW-RIGHT' : 'KBD-RIGHT';
+        } else if (buttons.A) {
+          pressedButton = 'KBD-TYPE';
+        } else if (buttons.B) {
+          pressedButton = 'KBD-BACKSPACE';
+        } else if (buttons.ONE) {
+          pressedButton = 'KBD-SPACE';
+        } else if (buttons.TWO) {
+          pressedButton = 'KBD-ENTER';
+        } else if (buttons.HOME) {
+          pressedButton = 'KBD-SHIFT';
+        }
       } else {
         // Media Mode (Standard mapping)
         pressedButton = buttons.UP ? 'UP' : 
@@ -297,11 +493,17 @@ async function connectToDevice(device) {
       if (pressedButton) {
         if (pressedButton !== lastButtonPressed) {
           // Reset cooldown on new button press
-          currentCooldown = (pressedButton === 'UP' || pressedButton === 'DOWN') && currentMode === MODES.NAV 
-            ? SCROLL_COOLDOWN 
-            : ((pressedButton === 'UP-ARROW' || pressedButton === 'DOWN-ARROW') && currentMode === MODES.PRES
-                ? 250 // Slightly faster but still limited for window switching
-                : INITIAL_COOLDOWN);
+          if ((pressedButton === 'KBD-BACKSPACE' || pressedButton === 'B') && (bUsedAsModifier || bNextBShouldBeSlow)) {
+            currentCooldown = INITIAL_COOLDOWN * 2;
+            bNextBShouldBeSlow = false;
+            bUsedAsModifier = false;
+          } else {
+            currentCooldown = (pressedButton === 'UP' || pressedButton === 'DOWN') && currentMode === MODES.NAV 
+              ? SCROLL_COOLDOWN 
+              : ((pressedButton === 'UP-ARROW' || pressedButton === 'DOWN-ARROW') && currentMode === MODES.PRES
+                  ? 250 // Slightly faster but still limited for window switching
+                  : INITIAL_COOLDOWN);
+          }
             
           lastButtonPressed = pressedButton;
           
@@ -349,8 +551,29 @@ async function connectToDevice(device) {
             else if (pressedButton === 'START-PRES') systemApi.navControl('start-presentation');
             else if (pressedButton === 'UP-ARROW') systemApi.navControl('up-arrow');
             else if (pressedButton === 'DOWN-ARROW') systemApi.navControl('down-arrow');
+          } else if (currentMode === MODES.KBD) {
+            // Keyboard Mode actions
+            if (pressedButton === 'KBD-UP') moveKeyboardSelection('UP');
+            else if (pressedButton === 'KBD-DOWN') moveKeyboardSelection('DOWN');
+            else if (pressedButton === 'KBD-LEFT') moveKeyboardSelection('LEFT');
+            else if (pressedButton === 'KBD-RIGHT') moveKeyboardSelection('RIGHT');
+            else if (pressedButton === 'KBD-TYPE') typeSelectedKey();
+            else if (pressedButton === 'KBD-BACKSPACE') {
+              // Don't trigger backspace immediately, wait for release or hold
+              console.log('B button held in KBD (modifier candidate)');
+            }
+            else if (pressedButton === 'KBD-SPACE') systemApi.navControl('space');
+            else if (pressedButton === 'KBD-ENTER') systemApi.navControl('enter');
+            else if (pressedButton === 'KBD-ARROW-UP') systemApi.navControl('up-arrow');
+            else if (pressedButton === 'KBD-ARROW-DOWN') systemApi.navControl('down-arrow');
+            else if (pressedButton === 'KBD-ARROW-LEFT') systemApi.navControl('left-arrow');
+            else if (pressedButton === 'KBD-ARROW-RIGHT') systemApi.navControl('right-arrow');
+            else if (pressedButton === 'KBD-SHIFT') {
+              isShifted = !isShifted;
+              updateKeyboardSelection();
+            }
           }
-            
+
           lastVolumeChange = now;
           } else if (now - lastVolumeChange > currentCooldown) {
             // Accelerate if holding
@@ -381,10 +604,30 @@ async function connectToDevice(device) {
               else if (pressedButton === 'RIGHT-ARROW') systemApi.navControl('right-arrow');
               else if (pressedButton === 'UP-ARROW') systemApi.navControl('up-arrow');
               else if (pressedButton === 'DOWN-ARROW') systemApi.navControl('down-arrow');
+            } else if (currentMode === MODES.KBD) {
+              // Keyboard Mode repeats
+              if (pressedButton === 'KBD-UP') moveKeyboardSelection('UP');
+              else if (pressedButton === 'KBD-DOWN') moveKeyboardSelection('DOWN');
+              else if (pressedButton === 'KBD-LEFT') moveKeyboardSelection('LEFT');
+              else if (pressedButton === 'KBD-RIGHT') moveKeyboardSelection('RIGHT');
+              else if (pressedButton === 'KBD-BACKSPACE') {
+                systemApi.navControl('backspace');
+                bActionTriggered = true; // Prevent release from triggering another backspace
+              }
+              else if (pressedButton === 'KBD-SPACE') systemApi.navControl('space');
+              else if (pressedButton === 'KBD-ARROW-UP') systemApi.navControl('up-arrow');
+              else if (pressedButton === 'KBD-ARROW-DOWN') systemApi.navControl('down-arrow');
+              else if (pressedButton === 'KBD-ARROW-LEFT') systemApi.navControl('left-arrow');
+              else if (pressedButton === 'KBD-ARROW-RIGHT') systemApi.navControl('right-arrow');
+              else if (pressedButton === 'KBD-TYPE') {
+                const layout = isShifted ? KEYBOARD_LAYOUTS.shift : KEYBOARD_LAYOUTS.default;
+                const key = layout[currentKbdRow][currentKbdCol];
+                if (key !== "{shift}") typeSelectedKey();
+              }
             }
 
             // Reduce cooldown for next repeat (only for certain buttons)
-            const accelButtons = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'TAB', 'SHIFT-TAB', 'PAGE-UP', 'PAGE-DOWN', 'ZOOM-IN', 'ZOOM-OUT', 'LEFT-ARROW', 'RIGHT-ARROW'];
+            const accelButtons = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'TAB', 'SHIFT-TAB', 'PAGE-UP', 'PAGE-DOWN', 'ZOOM-IN', 'ZOOM-OUT', 'LEFT-ARROW', 'RIGHT-ARROW', 'KBD-UP', 'KBD-DOWN', 'KBD-LEFT', 'KBD-RIGHT', 'KBD-BACKSPACE', 'KBD-SPACE', 'KBD-TYPE', 'B', 'KBD-ARROW-UP', 'KBD-ARROW-DOWN', 'KBD-ARROW-LEFT', 'KBD-ARROW-RIGHT'];
             if (accelButtons.includes(pressedButton)) {
               if (currentMode === MODES.NAV && (pressedButton === 'UP' || pressedButton === 'DOWN')) {
                 currentCooldown = SCROLL_COOLDOWN; // Keep scroll constant and fast
@@ -396,11 +639,19 @@ async function connectToDevice(device) {
           }
         } else if (lastButtonPressed !== 'MODE') {
           // Button released
-          if (lastButtonPressed === 'B' && (currentMode === MODES.NAV || currentMode === MODES.PRES)) {
-            // If B was released and not used as a modifier, trigger refresh
+          if ((lastButtonPressed === 'B' || lastButtonPressed === 'KBD-BACKSPACE') && (currentMode === MODES.NAV || currentMode === MODES.PRES || currentMode === MODES.KBD)) {
+            // If B was released and not used as a modifier, trigger action
             if (!bActionTriggered && bPressedTime !== 0 && (now - bPressedTime < 1000)) {
-              console.log('B released - triggering refresh');
-              systemApi.navControl('refresh');
+              if (currentMode === MODES.KBD) {
+                console.log('B released in KBD - triggering backspace');
+                systemApi.navControl('backspace');
+              } else {
+                console.log('B released - triggering refresh');
+                systemApi.navControl('refresh');
+              }
+            }
+            if (bUsedAsModifier) {
+              bNextBShouldBeSlow = true;
             }
           }
           else if (lastButtonPressed === 'A' && (currentMode === MODES.NAV || currentMode === MODES.PRES)) {

@@ -5,4 +5,7 @@ contextBridge.exposeInMainWorld('system', {
   changeVolume: (direction) => ipcRenderer.send('change-volume', direction),
   mediaControl: (action) => ipcRenderer.send('media-control', action),
   navControl: (action) => ipcRenderer.send('nav-control', action),
+  typeText: (text) => ipcRenderer.send('type-text', text),
+  toggleKeyboard: (show) => ipcRenderer.send('toggle-keyboard', show),
+  updateKeyboardSelection: (selection) => ipcRenderer.send('update-keyboard-selection', selection),
 });
