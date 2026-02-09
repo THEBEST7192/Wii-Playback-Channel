@@ -330,6 +330,8 @@ async function connectToDevice(device) {
 
     wiimote.onButtonUpdate = (buttons) => {
       const now = Date.now();
+      const bReleased = !buttons.B && prevButtons.B;
+      const aReleased = !buttons.A && prevButtons.A;
 
       // Detection of button transitions
       if (buttons.B && !prevButtons.B) {
@@ -358,10 +360,7 @@ async function connectToDevice(device) {
       }
 
       // Handle release actions for A and B
-      if (!buttons.B && prevButtons.B) {
-        bPressedTime = 0;
-      }
-      if (!buttons.A && prevButtons.A) {
+      if (aReleased) {
         if (currentMode === MODES.PRES && isAltDown) {
           console.log('A released in PRES mode - releasing Alt');
           systemApi.navControl('alt-up');
@@ -702,6 +701,8 @@ async function connectToDevice(device) {
             if (accelButtons.includes(pressedButton)) {
               if (currentMode === MODES.NAV && (pressedButton === 'UP' || pressedButton === 'DOWN')) {
                 currentCooldown = SCROLL_COOLDOWN; // Keep scroll constant and fast
+              } else if (currentMode === MODES.PRES) {
+                currentCooldown = Math.max(currentCooldown, 250);
               } else {
                 currentCooldown = Math.max(MIN_COOLDOWN, currentCooldown * 0.8);
               }
@@ -732,12 +733,14 @@ async function connectToDevice(device) {
               systemApi.navControl('click');
             }
           }
-          
           lastButtonPressed = null;
           currentCooldown = INITIAL_COOLDOWN;
         }
 
       // Update button state history
+      if (bReleased) {
+        bPressedTime = 0;
+      }
       prevButtons = { ...buttons };
       updateWiimoteDisplayState(buttons);
     };
