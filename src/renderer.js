@@ -19,10 +19,51 @@ let autosyncEnabled = true; // Default to true for automatic pairing
 const systemApi = typeof window !== 'undefined' ? window.system : null;
 let syncInProgress = false;
 const guestToggle = document.getElementById('guest-toggle');
+let prevNunchukButtons = { z: false, c: false };
+let lastWiimoteLogAt = 0;
+let lastNunchukLogAt = 0;
+let nunchukActive = false;
+let lastNunchukInputLogAt = 0;
+let lastMouseMoveSentAt = 0;
+let pendingMouseMove = { dx: 0, dy: 0 };
+let mouseMoveTimer = null;
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
 });
+
+const flushMouseMove = () => {
+  mouseMoveTimer = null;
+  const dx = Math.trunc(pendingMouseMove.dx);
+  const dy = Math.trunc(pendingMouseMove.dy);
+  if (dx === 0 && dy === 0) return;
+  pendingMouseMove.dx -= dx;
+  pendingMouseMove.dy -= dy;
+  lastMouseMoveSentAt = Date.now();
+  systemApi.navControl({ action: 'mouse-move', dx, dy });
+};
+
+const queueMouseMove = (dx, dy) => {
+  if (dx === 0 && dy === 0) return;
+  pendingMouseMove.dx += dx;
+  pendingMouseMove.dy += dy;
+  const now = Date.now();
+  if (now - lastMouseMoveSentAt >= 4) {
+    flushMouseMove();
+    return;
+  }
+  if (!mouseMoveTimer) {
+    mouseMoveTimer = setTimeout(flushMouseMove, 4);
+  }
+};
+
+const resetMouseMove = () => {
+  pendingMouseMove = { dx: 0, dy: 0 };
+  if (mouseMoveTimer) {
+    clearTimeout(mouseMoveTimer);
+    mouseMoveTimer = null;
+  }
+};
 
 if (systemApi?.syncWiimote) {
   console.log('Native sync helper available');
@@ -318,20 +359,95 @@ window.addEventListener('DOMContentLoaded', () => {
 
 async function connectToDevice(device) {
   try {
+    console.log('Renderer connectToDevice start', { productName: device?.productName, vendorId: device?.vendorId, productId: device?.productId });
     wiimote = new Wiimote(device);
     statusDiv.textContent = `Status: Connecting to ${device.productName}...`;
     
     await wiimote.init();
     
     statusDiv.textContent = `Status: Connected to ${device.productName}`;
+    console.log('Renderer connected', { productName: device?.productName });
 
     // Initialize LED for first mode
     wiimote.setLEDs(true, false, false, false);
 
-    wiimote.onButtonUpdate = (buttons) => {
+    wiimote.onButtonUpdate = (buttons, report) => {
       const now = Date.now();
       const bReleased = !buttons.B && prevButtons.B;
       const aReleased = !buttons.A && prevButtons.A;
+      if (report && now - lastWiimoteLogAt > 1000) {
+        console.log('Wiimote input report', { reportId: report.reportId });
+        lastWiimoteLogAt = now;
+      }
+
+      if (report?.reportId === 0x20) {
+        const status2 = report.data.getUint8(2);
+        const status3 = report.data.getUint8(3);
+        const extensionConnected = Boolean((status3 & 0x02) || (status2 & 0x02));
+        if (now - lastNunchukLogAt > 1000) {
+          console.log('Nunchuk status', { extensionConnected, status2, status3 });
+          lastNunchukLogAt = now;
+        }
+        if (nunchukActive && !extensionConnected) {
+          systemApi.navControl('mouse-left-up');
+          systemApi.navControl('mouse-right-up');
+          prevNunchukButtons = { z: false, c: false };
+          resetMouseMove();
+        }
+        nunchukActive = extensionConnected;
+        return;
+      }
+
+      if (report?.reportId === 0x35) {
+        nunchukActive = true;
+        if (now - lastNunchukLogAt > 1000) {
+          console.log('Nunchuk report received');
+          lastNunchukLogAt = now;
+        }
+        const nunchukData = new DataView(report.data.buffer, 5, 16);
+        const stickX = (nunchukData.getUint8(0) - 128) / 128;
+        const stickY = (nunchukData.getUint8(1) - 128) / 128;
+        const zPressed = (nunchukData.getUint8(5) & 0x01) === 0;
+        const cPressed = (nunchukData.getUint8(5) & 0x02) === 0;
+        if (now - lastNunchukInputLogAt > 1000) {
+          console.log('Nunchuk input', { stickX, stickY, zPressed, cPressed });
+          lastNunchukInputLogAt = now;
+        }
+
+        const deadzone = 0.08;
+        let moveX = 0;
+        let moveY = 0;
+
+        if (Math.abs(stickX) > deadzone) {
+          const sign = Math.sign(stickX);
+          const value = Math.abs(stickX);
+          moveX = sign * ((value - deadzone) / (1.0 - deadzone));
+        }
+
+        if (Math.abs(stickY) > deadzone) {
+          const sign = Math.sign(stickY);
+          const value = Math.abs(stickY);
+          moveY = sign * ((value - deadzone) / (1.0 - deadzone));
+        }
+
+        if (moveX !== 0 || moveY !== 0) {
+          queueMouseMove(moveX * 20, -moveY * 20);
+        }
+
+        if (zPressed && !prevNunchukButtons.z) {
+          systemApi.navControl('mouse-left-down');
+        } else if (!zPressed && prevNunchukButtons.z) {
+          systemApi.navControl('mouse-left-up');
+        }
+
+        if (cPressed && !prevNunchukButtons.c) {
+          systemApi.navControl('mouse-right-down');
+        } else if (!cPressed && prevNunchukButtons.c) {
+          systemApi.navControl('mouse-right-up');
+        }
+
+        prevNunchukButtons = { z: zPressed, c: cPressed };
+      }
 
       // Detection of button transitions
       if (buttons.B && !prevButtons.B) {
@@ -748,6 +864,12 @@ async function connectToDevice(device) {
     device.addEventListener('forget', () => {
       wiimote = null;
       statusDiv.textContent = 'Status: Disconnected (Device forgotten)';
+      console.warn('Renderer device forgotten');
+      nunchukActive = false;
+      prevNunchukButtons = { z: false, c: false };
+      resetMouseMove();
+      systemApi.navControl('mouse-left-up');
+      systemApi.navControl('mouse-right-up');
     });
 
   } catch (error) {
@@ -814,6 +936,7 @@ async function runSync(mode) {
 
 connectBtn.addEventListener('click', async () => {
   try {
+    console.log('Renderer connect button clicked');
     statusDiv.textContent = 'Status: Searching...';
     
     // Request Wii Remote device
@@ -823,6 +946,7 @@ connectBtn.addEventListener('click', async () => {
     });
 
     if (devices.length > 0) {
+      console.log('Renderer device selected', { productName: devices[0]?.productName, vendorId: devices[0]?.vendorId, productId: devices[0]?.productId });
       await connectToDevice(devices[0]);
     } else {
       statusDiv.textContent = 'Status: No Wii Remote selected';
@@ -836,9 +960,10 @@ connectBtn.addEventListener('click', async () => {
 // Check for already connected devices on startup
 async function startupCheck() {
   const devices = await navigator.hid.getDevices();
+  console.log('Renderer startup devices', { count: devices.length });
   const wiiRemote = devices.find(d => d.vendorId === 0x057e);
   if (wiiRemote && autosyncEnabled) {
-    console.log('Auto-connecting to existing device on startup');
+    console.log('Renderer auto-connect device found', { productName: wiiRemote?.productName, vendorId: wiiRemote?.vendorId, productId: wiiRemote?.productId });
     connectToDevice(wiiRemote);
   }
 }
@@ -848,7 +973,21 @@ startupCheck();
 // Listen for device connections
 navigator.hid.addEventListener('connect', (event) => {
   if (autosyncEnabled && event.device.vendorId === 0x057e && !wiimote) {
+    console.log('Renderer HID connect event', { productName: event.device?.productName, vendorId: event.device?.vendorId, productId: event.device?.productId });
     connectToDevice(event.device);
+  }
+});
+
+navigator.hid.addEventListener('disconnect', (event) => {
+  if (wiimote && event.device?.vendorId === 0x057e) {
+    console.warn('Renderer HID disconnect event', { productName: event.device?.productName, vendorId: event.device?.vendorId, productId: event.device?.productId });
+    wiimote = null;
+    nunchukActive = false;
+    prevNunchukButtons = { z: false, c: false };
+    resetMouseMove();
+    systemApi.navControl('mouse-left-up');
+    systemApi.navControl('mouse-right-up');
+    statusDiv.textContent = 'Status: Disconnected';
   }
 });
 

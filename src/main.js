@@ -6,14 +6,58 @@ import started from 'electron-squirrel-startup';
 
 let mainWindow;
 let keyboardWindow;
+let lastMouseMoveAt = 0;
+let mouseWorker = null;
+
+const startMouseWorker = () => {
+  if (mouseWorker) {
+    return;
+  }
+  const script = "$ErrorActionPreference='Stop'; Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern void mouse_event(int dwFlags,int dx,int dy,int dwData,int dwExtraInfo);' -Name 'Win32Mouse' -Namespace 'Win32Utils' | Out-Null; while($true){$line=[Console]::In.ReadLine(); if($null -eq $line){break}; $parts=$line.Split(' '); if($parts.Length -ge 3 -and $parts[0] -eq 'MOVE'){[Win32Utils.Win32Mouse]::mouse_event(0x0001,[int]$parts[1],[int]$parts[2],0,0)}}";
+  mouseWorker = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
+  mouseWorker.on('exit', () => {
+    mouseWorker = null;
+  });
+  mouseWorker.stderr?.on('data', (data) => {
+    console.error('Mouse worker error', data.toString().trim());
+  });
+};
 
 // Navigation control using PowerShell
-ipcMain.on('nav-control', (event, action) => {
+ipcMain.on('nav-control', (event, arg) => {
+  console.log('IPC nav-control', { arg });
   let command;
+  let action = typeof arg === 'string' ? arg : arg.action;
+  if (action === 'mouse-move') {
+    if (mouseWorker?.stdin?.writable) {
+      mouseWorker.stdin.write(`MOVE ${arg.dx} ${arg.dy}\n`);
+      return;
+    }
+    const now = Date.now();
+    if (now - lastMouseMoveAt < 4) {
+      return;
+    }
+    lastMouseMoveAt = now;
+  }
   switch (action) {
     case 'click':
       // Left click using mouse_event (0x02 = left down, 0x04 = left up)
       command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0002, 0, 0, 0, 0); $type::mouse_event(0x0004, 0, 0, 0, 0)"`;
+      break;
+    case 'mouse-move':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0001, ${arg.dx}, ${arg.dy}, 0, 0)"`;
+      break;
+    case 'mouse-left-down':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0002, 0, 0, 0, 0)"`;
+      break;
+    case 'mouse-left-up':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0004, 0, 0, 0, 0)"`;
+      break;
+    case 'mouse-right-down':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0008, 0, 0, 0, 0)"`;
+      break;
+    case 'mouse-right-up':
+      command = `powershell -Command "$sig = '[DllImport(\\"user32.dll\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'; $type = Add-Type -MemberDefinition $sig -Name \\"Win32Mouse\\" -Namespace \\"Win32Utils\\" -PassThru; $type::mouse_event(0x0010, 0, 0, 0, 0)"`;
       break;
     case 'scroll-up':
       // Scroll up (positive value)
@@ -120,6 +164,7 @@ ipcMain.on('nav-control', (event, action) => {
 
 // Typing control
 ipcMain.on('type-text', (event, text) => {
+  console.log('IPC type-text', { length: text?.length });
   // Double escaping for PowerShell and handling slash/backslash
   const escaped = text
     .replace(/([+^%~(){}[\]])/g, '{$1}') // Escape SendKeys special chars
@@ -136,6 +181,7 @@ ipcMain.on('type-text', (event, text) => {
 
 // Media control using PowerShell
 ipcMain.on('media-control', (event, action) => {
+  console.log('IPC media-control', { action });
   let charCode;
   switch (action) {
     case 'play-pause': charCode = 179; break; // VK_MEDIA_PLAY_PAUSE
@@ -154,6 +200,7 @@ ipcMain.on('media-control', (event, action) => {
 
 // Volume control using PowerShell
 ipcMain.on('change-volume', (event, direction) => {
+  console.log('IPC change-volume', { direction });
   const command = direction === 'up' 
     ? `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys([char]175)"` 
     : `powershell -Command "$obj = New-Object -ComObject WScript.Shell; $obj.SendKeys([char]174)"`;
@@ -198,6 +245,7 @@ function createKeyboardWindow() {
 }
 
 ipcMain.on('toggle-keyboard', (event, show) => {
+  console.log('IPC toggle-keyboard', { show });
   if (!keyboardWindow) {
     createKeyboardWindow();
   }
@@ -210,6 +258,7 @@ ipcMain.on('toggle-keyboard', (event, show) => {
 });
 
 ipcMain.on('update-keyboard-selection', (event, selection) => {
+  console.log('IPC update-keyboard-selection', { selection });
   if (keyboardWindow) {
     keyboardWindow.webContents.send('set-selection', selection);
   }
@@ -231,21 +280,26 @@ const createWindow = () => {
   });
   // Handle HID device selection
   mainWindow.webContents.session.on('select-hid-device', (event, details, callback) => {
+    console.log('HID select device', { devices: details.deviceList?.length ?? 0 });
     event.preventDefault();
     if (details.deviceList && details.deviceList.length > 0) {
       // Auto-select the first Wii Remote if found
       const wiiRemote = details.deviceList.find(d => d.vendorId === 0x057e);
       if (wiiRemote) {
+        console.log('HID selecting Wii Remote', { vendorId: wiiRemote.vendorId, productId: wiiRemote.productId, productName: wiiRemote.productName });
         callback(wiiRemote.deviceId);
       } else {
+        console.log('HID selecting first device', { vendorId: details.deviceList[0]?.vendorId, productId: details.deviceList[0]?.productId, productName: details.deviceList[0]?.productName });
         callback(details.deviceList[0].deviceId);
       }
     } else {
+      console.warn('HID no devices to select');
       callback(null);
     }
   });
 
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
+    console.log('HID permission check', { permission });
     if (permission === 'hid') {
       return true;
     }
@@ -253,6 +307,7 @@ const createWindow = () => {
   });
 
   mainWindow.webContents.session.setDevicePermissionHandler((details) => {
+    console.log('HID device permission', { deviceType: details.deviceType, vendorId: details.device?.vendorId, productId: details.device?.productId, productName: details.device?.productName });
     // Grant permission to all Nintendo (0x057e) HID devices automatically
     if (details.deviceType === 'hid' && details.device.vendorId === 0x057e) {
       return true;
@@ -355,6 +410,7 @@ const runSyncExecutable = (mode) => new Promise((resolve) => {
 });
 
 app.whenReady().then(() => {
+  startMouseWorker();
   createWindow();
   ipcMain.handle('sync-wiimote', async (_e, mode) => runSyncExecutable(mode));
 
@@ -364,6 +420,7 @@ app.whenReady().then(() => {
     }
   });
 });
+
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
