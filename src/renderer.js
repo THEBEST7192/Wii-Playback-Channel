@@ -30,6 +30,7 @@ let lastNunchukInputLogAt = 0;
 let lastMouseMoveSentAt = 0;
 let pendingMouseMove = { dx: 0, dy: 0 };
 let mouseMoveTimer = null;
+let nunchukStickVisual = { el: null, cx0: 0, cy0: 0, x: 0, y: 0 };
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -238,7 +239,16 @@ async function initWiimoteDisplay() {
   const nunchukResponse = await fetch(nunchukUrl);
   const nunchukSvgText = await nunchukResponse.text();
   nunchukBody.innerHTML = nunchukSvgText;
+  nunchukBody.style.display = 'none';
   wiimoteDisplay.appendChild(nunchukBody);
+  const stickEl = nunchukBody.querySelector('#nunchuk-stick');
+  if (stickEl) {
+    nunchukStickVisual.el = stickEl;
+    nunchukStickVisual.cx0 = parseFloat(stickEl.getAttribute('cx') || '0');
+    nunchukStickVisual.cy0 = parseFloat(stickEl.getAttribute('cy') || '0');
+    nunchukStickVisual.x = 0;
+    nunchukStickVisual.y = 0;
+  }
 
   const wiimoteBody = document.createElement('div');
   wiimoteBody.id = 'wiimote-body';
@@ -465,11 +475,15 @@ async function connectToDevice(device) {
           resetMouseMove();
         }
         nunchukActive = extensionConnected;
+        const nb = wiimoteDisplay.querySelector('#nunchuk-body');
+        if (nb) nb.style.display = extensionConnected ? 'block' : 'none';
         return;
       }
 
       if (report?.reportId === 0x35) {
         nunchukActive = true;
+        const nb = wiimoteDisplay.querySelector('#nunchuk-body');
+        if (nb) nb.style.display = 'block';
         if (now - lastNunchukLogAt > 1000) {
           console.log('Nunchuk report received');
           lastNunchukLogAt = now;
@@ -509,7 +523,21 @@ async function connectToDevice(device) {
         const stickEl = wiimoteDisplay.querySelector('#nunchuk-stick');
         if (zEl) zEl.classList.toggle('nunchuk-held', zPressed);
         if (cEl) cEl.classList.toggle('nunchuk-held', cPressed);
-        if (stickEl) stickEl.classList.toggle('nunchuk-held', (Math.abs(stickX) > deadzone || Math.abs(stickY) > deadzone));
+        if (stickEl) {
+          stickEl.classList.toggle('nunchuk-held', (Math.abs(stickX) > deadzone || Math.abs(stickY) > deadzone));
+        }
+
+        if (nunchukStickVisual.el) {
+          const maxDeflect = 4.5;
+          const targetX = stickX * maxDeflect;
+          const targetY = -stickY * maxDeflect;
+          nunchukStickVisual.x += (targetX - nunchukStickVisual.x) * 0.35;
+          nunchukStickVisual.y += (targetY - nunchukStickVisual.y) * 0.35;
+          const cx = (nunchukStickVisual.cx0 + nunchukStickVisual.x).toFixed(2);
+          const cy = (nunchukStickVisual.cy0 + nunchukStickVisual.y).toFixed(2);
+          nunchukStickVisual.el.setAttribute('cx', cx);
+          nunchukStickVisual.el.setAttribute('cy', cy);
+        }
 
         if (zPressed && !prevNunchukButtons.z) {
           systemApi.navControl('mouse-left-down');
@@ -957,6 +985,8 @@ async function connectToDevice(device) {
       if (presHelp) presHelp.style.display = currentMode === MODES.PRES ? 'block' : 'none';
       const kbdHelp = document.getElementById('kbd-controls');
       if (kbdHelp) kbdHelp.style.display = currentMode === MODES.KBD ? 'block' : 'none';
+      const nb = wiimoteDisplay.querySelector('#nunchuk-body');
+      if (nb) nb.style.display = 'none';
       updateWiimoteLedDisplay();
     });
 
@@ -1090,6 +1120,8 @@ navigator.hid.addEventListener('disconnect', (event) => {
     if (presHelp) presHelp.style.display = currentMode === MODES.PRES ? 'block' : 'none';
     const kbdHelp = document.getElementById('kbd-controls');
     if (kbdHelp) kbdHelp.style.display = currentMode === MODES.KBD ? 'block' : 'none';
+    const nb = wiimoteDisplay.querySelector('#nunchuk-body');
+    if (nb) nb.style.display = 'none';
     updateWiimoteLedDisplay();
   }
 });
