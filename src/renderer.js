@@ -922,6 +922,7 @@ async function connectToDevice(device) {
     device.addEventListener('forget', () => {
       wiimote = null;
       wiimoteConnected = false;
+      currentMode = MODES.MEDIA;
       statusDiv.textContent = 'Status: Disconnected (Device forgotten)';
       console.warn('Renderer device forgotten');
       nunchukActive = false;
@@ -929,6 +930,13 @@ async function connectToDevice(device) {
       resetMouseMove();
       systemApi.navControl('mouse-left-up');
       systemApi.navControl('mouse-right-up');
+      if (modeTitle) modeTitle.textContent = `Mode: ${currentMode}`;
+      if (mediaHelp) mediaHelp.style.display = currentMode === MODES.MEDIA ? 'block' : 'none';
+      if (navHelp) navHelp.style.display = currentMode === MODES.NAV ? 'block' : 'none';
+      const presHelp = document.getElementById('pres-controls');
+      if (presHelp) presHelp.style.display = currentMode === MODES.PRES ? 'block' : 'none';
+      const kbdHelp = document.getElementById('kbd-controls');
+      if (kbdHelp) kbdHelp.style.display = currentMode === MODES.KBD ? 'block' : 'none';
       updateWiimoteLedDisplay();
     });
 
@@ -1048,12 +1056,20 @@ navigator.hid.addEventListener('disconnect', (event) => {
     console.warn('Renderer HID disconnect event', { productName: event.device?.productName, vendorId: event.device?.vendorId, productId: event.device?.productId });
     wiimote = null;
     wiimoteConnected = false;
+    currentMode = MODES.MEDIA;
     nunchukActive = false;
     prevNunchukButtons = { z: false, c: false };
     resetMouseMove();
     systemApi.navControl('mouse-left-up');
     systemApi.navControl('mouse-right-up');
     statusDiv.textContent = 'Status: Disconnected';
+    if (modeTitle) modeTitle.textContent = `Mode: ${currentMode}`;
+    if (mediaHelp) mediaHelp.style.display = currentMode === MODES.MEDIA ? 'block' : 'none';
+    if (navHelp) navHelp.style.display = currentMode === MODES.NAV ? 'block' : 'none';
+    const presHelp = document.getElementById('pres-controls');
+    if (presHelp) presHelp.style.display = currentMode === MODES.PRES ? 'block' : 'none';
+    const kbdHelp = document.getElementById('kbd-controls');
+    if (kbdHelp) kbdHelp.style.display = currentMode === MODES.KBD ? 'block' : 'none';
     updateWiimoteLedDisplay();
   }
 });
