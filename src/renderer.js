@@ -230,13 +230,26 @@ async function initWiimoteDisplay() {
   const url = new URL('./assets/wiimote.svg', import.meta.url);
   const response = await fetch(url);
   const svgText = await response.text();
-  wiimoteDisplay.innerHTML = svgText;
+  wiimoteDisplay.innerHTML = '';
+
+  const nunchukBody = document.createElement('div');
+  nunchukBody.id = 'nunchuk-body';
+  const nunchukUrl = new URL('./assets/nunchuck.svg', import.meta.url);
+  const nunchukResponse = await fetch(nunchukUrl);
+  const nunchukSvgText = await nunchukResponse.text();
+  nunchukBody.innerHTML = nunchukSvgText;
+  wiimoteDisplay.appendChild(nunchukBody);
+
+  const wiimoteBody = document.createElement('div');
+  wiimoteBody.id = 'wiimote-body';
+  wiimoteBody.innerHTML = svgText;
+  wiimoteDisplay.appendChild(wiimoteBody);
 
   const dpadImg = document.createElement('img');
   dpadImg.id = 'wiimote-dpad';
   dpadImg.alt = 'D-Pad';
   dpadImg.src = new URL('./assets/dpad.svg', import.meta.url).toString();
-  wiimoteDisplay.appendChild(dpadImg);
+  wiimoteBody.appendChild(dpadImg);
 
   wiimoteSvgInitialized = true;
   updateWiimoteLedDisplay();
@@ -490,6 +503,13 @@ async function connectToDevice(device) {
         if (moveX !== 0 || moveY !== 0) {
           queueMouseMove(moveX * 20, -moveY * 20);
         }
+
+        const zEl = wiimoteDisplay.querySelector('#nunchuk-btn-Z');
+        const cEl = wiimoteDisplay.querySelector('#nunchuk-btn-C');
+        const stickEl = wiimoteDisplay.querySelector('#nunchuk-stick');
+        if (zEl) zEl.classList.toggle('nunchuk-held', zPressed);
+        if (cEl) cEl.classList.toggle('nunchuk-held', cPressed);
+        if (stickEl) stickEl.classList.toggle('nunchuk-held', (Math.abs(stickX) > deadzone || Math.abs(stickY) > deadzone));
 
         if (zPressed && !prevNunchukButtons.z) {
           systemApi.navControl('mouse-left-down');
