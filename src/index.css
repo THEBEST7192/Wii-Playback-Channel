@@ -78,6 +78,14 @@ body {
   fill: #0fc5fe !important;
 }
 
+#wiimote-display .wiimote-led {
+  fill: #000 !important;
+}
+
+#wiimote-display .wiimote-led.wiimote-led-on {
+  fill: #0fc5fe !important;
+}
+
 #wiimote-btn-HOME.wiimote-held ~ .wiimote-home-icon-bg,
 #wiimote-btn-HOME.wiimote-held ~ .wiimote-home-icon-roof {
   fill: #0a3069 !important;

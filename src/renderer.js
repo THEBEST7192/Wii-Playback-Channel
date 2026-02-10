@@ -15,9 +15,12 @@ const wiimoteDisplay = document.getElementById('wiimote-display');
 let wiimoteSvgInitialized = false;
 
 let wiimote = null;
+let wiimoteConnected = false;
 let autosyncEnabled = true; // Default to true for automatic pairing
 const systemApi = typeof window !== 'undefined' ? window.system : null;
 let syncInProgress = false;
+let ledFlashInterval = null;
+let ledFlashOn = false;
 const guestToggle = document.getElementById('guest-toggle');
 let prevNunchukButtons = { z: false, c: false };
 let lastWiimoteLogAt = 0;
@@ -99,12 +102,18 @@ autosyncToggle.addEventListener('change', (e) => {
   }
 });
 
+const didSyncSucceed = (result) => {
+  if (!result) return false;
+  if (result.ok) return true;
+  const stdout = result.stdout || '';
+  return stdout.includes('Found Wiimote') && stdout.includes('BluetoothSetServiceState result: 0');
+};
 
 if (syncBtn) {
   syncBtn.addEventListener('click', async () => {
     try {
       const result = await runSync('manual');
-      if (result?.ok) {
+      if (didSyncSucceed(result)) {
         statusDiv.textContent = 'Status: Sync complete. Click Connect Wii Remote.';
         await sleep(800);
         await connectAfterSync();
@@ -230,10 +239,13 @@ async function initWiimoteDisplay() {
   wiimoteDisplay.appendChild(dpadImg);
 
   wiimoteSvgInitialized = true;
+  updateWiimoteLedDisplay();
 }
 
 function updateWiimoteDisplayState(buttons) {
   if (!wiimoteDisplay || !wiimoteSvgInitialized) return;
+
+  updateWiimoteLedDisplay();
 
   const buttonIdByName = {
     A: 'wiimote-btn-A',
@@ -282,6 +294,48 @@ function updateWiimoteDisplayState(buttons) {
     dpad.src = dpadSrc;
   }
   dpad.style.transform = `rotate(${rotationDeg}deg)`;
+}
+
+function updateWiimoteLedDisplay() {
+  if (!wiimoteDisplay || !wiimoteSvgInitialized) return;
+
+  const ledStatesByMode = {
+    [MODES.MEDIA]: [true, false, false, false],
+    [MODES.NAV]: [false, true, false, false],
+    [MODES.PRES]: [false, false, true, false],
+    [MODES.KBD]: [false, false, false, true]
+  };
+
+  let ledStates = ledStatesByMode[currentMode] ?? [false, false, false, false];
+  if (syncInProgress) {
+    ledStates = [ledFlashOn, ledFlashOn, ledFlashOn, ledFlashOn];
+  } else if (!wiimoteConnected) {
+    ledStates = [false, false, false, false];
+  }
+  for (let i = 0; i < 4; i += 1) {
+    const led = wiimoteDisplay.querySelector(`#wiimote-led-${i + 1}`);
+    if (!led) continue;
+    led.classList.toggle('wiimote-led-on', ledStates[i]);
+  }
+}
+
+function setLedFlashActive(active) {
+  if (active) {
+    if (ledFlashInterval) return;
+    ledFlashOn = true;
+    updateWiimoteLedDisplay();
+    ledFlashInterval = setInterval(() => {
+      ledFlashOn = !ledFlashOn;
+      updateWiimoteLedDisplay();
+    }, 150);
+    return;
+  }
+  if (ledFlashInterval) {
+    clearInterval(ledFlashInterval);
+    ledFlashInterval = null;
+  }
+  ledFlashOn = false;
+  updateWiimoteLedDisplay();
 }
 
 function handlePhysicalKeyPress(button) {
@@ -364,12 +418,15 @@ async function connectToDevice(device) {
     statusDiv.textContent = `Status: Connecting to ${device.productName}...`;
     
     await wiimote.init();
+    wiimoteConnected = true;
     
     statusDiv.textContent = `Status: Connected to ${device.productName}`;
     console.log('Renderer connected', { productName: device?.productName });
 
     // Initialize LED for first mode
     wiimote.setLEDs(true, false, false, false);
+    setLedFlashActive(false);
+    updateWiimoteLedDisplay();
 
     wiimote.onButtonUpdate = (buttons, report) => {
       const now = Date.now();
@@ -525,6 +582,7 @@ async function connectToDevice(device) {
             wiimote.setLEDs(false, false, false, true); // LED 4 for Keyboard
           }
         }
+        updateWiimoteLedDisplay();
 
         // Update UI
         if (modeTitle) modeTitle.textContent = `Mode: ${currentMode}`;
@@ -863,6 +921,7 @@ async function connectToDevice(device) {
 
     device.addEventListener('forget', () => {
       wiimote = null;
+      wiimoteConnected = false;
       statusDiv.textContent = 'Status: Disconnected (Device forgotten)';
       console.warn('Renderer device forgotten');
       nunchukActive = false;
@@ -870,9 +929,13 @@ async function connectToDevice(device) {
       resetMouseMove();
       systemApi.navControl('mouse-left-up');
       systemApi.navControl('mouse-right-up');
+      updateWiimoteLedDisplay();
     });
 
   } catch (error) {
+    wiimote = null;
+    wiimoteConnected = false;
+    updateWiimoteLedDisplay();
     console.error('Connection failed:', error);
     statusDiv.textContent = `Status: Error - ${error.message}`;
   }
@@ -889,7 +952,7 @@ async function attemptAutoConnect() {
     return;
   }
   const result = await runSync('auto');
-  if (result?.ok) {
+  if (didSyncSucceed(result)) {
     await connectAfterSync();
   } else if (!result?.skipped && pairingHelp) {
     pairingHelp.textContent = 'Pairing: use 1+2 for guest or Sync for bonding, then click Sync.';
@@ -917,6 +980,7 @@ async function runSync(mode) {
     return { ok: false, skipped: true };
   }
   syncInProgress = true;
+  setLedFlashActive(true);
   console.log('Invoking native sync helper', { mode, pairing: guestToggle ? (guestToggle.checked ? 'guest' : 'bond') : (guestMode ? 'guest' : 'bond') });
   statusDiv.textContent = mode === 'auto'
     ? 'Status: Auto-syncing Wii Remote...'
@@ -924,6 +988,7 @@ async function runSync(mode) {
   const useGuest = guestToggle ? guestToggle.checked : guestMode;
   const result = await systemApi.syncWiimote(useGuest ? 'guest' : 'bond');
   syncInProgress = false;
+  setLedFlashActive(false);
   console.log(`Sync result: ${result?.ok ? 'ok' : 'failed'}${result?.error ? ` (${result.error})` : ''}`);
   if (result?.stdout) {
     console.log('Sync stdout:\n' + result.stdout.trim());
@@ -982,12 +1047,14 @@ navigator.hid.addEventListener('disconnect', (event) => {
   if (wiimote && event.device?.vendorId === 0x057e) {
     console.warn('Renderer HID disconnect event', { productName: event.device?.productName, vendorId: event.device?.vendorId, productId: event.device?.productId });
     wiimote = null;
+    wiimoteConnected = false;
     nunchukActive = false;
     prevNunchukButtons = { z: false, c: false };
     resetMouseMove();
     systemApi.navControl('mouse-left-up');
     systemApi.navControl('mouse-right-up');
     statusDiv.textContent = 'Status: Disconnected';
+    updateWiimoteLedDisplay();
   }
 });
 
