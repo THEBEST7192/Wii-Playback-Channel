@@ -19,7 +19,7 @@ if not defined VCVARS (
             goto :found
         )
         for %%v in (2022 2019 2017) do (
-            for %%e in (Community Professional Enterprise) do (
+            for %%e in (Community Professional Enterprise BuildTools) do (
                 if exist "%%d:\Program Files\Microsoft Visual Studio\%%v\%%e\VC\Auxiliary\Build\vcvarsall.bat" (
                     set "VCVARS=%%d:\Program Files\Microsoft Visual Studio\%%v\%%e\VC\Auxiliary\Build\vcvarsall.bat"
                     goto :found

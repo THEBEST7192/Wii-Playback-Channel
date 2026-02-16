@@ -8,4 +8,6 @@ contextBridge.exposeInMainWorld('system', {
   typeText: (text) => ipcRenderer.send('type-text', text),
   toggleKeyboard: (show) => ipcRenderer.send('toggle-keyboard', show),
   updateKeyboardSelection: (selection) => ipcRenderer.send('update-keyboard-selection', selection),
+  xinputToggle: (enabled) => ipcRenderer.invoke('xinput-toggle', enabled),
+  xinputUpdate: (state) => ipcRenderer.send('xinput-update', state),
 });

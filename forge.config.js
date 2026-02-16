@@ -11,6 +11,7 @@ module.exports = {
         '/package.json',
         '/keyboard.html',
         '/node_modules/simple-keyboard',
+        '/node_modules/vigemclient',
       ];
 
       const isAllowedPath = allowedPaths.some(p => path === p || path.startsWith(p + '/'));

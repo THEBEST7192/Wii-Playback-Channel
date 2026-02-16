@@ -30,6 +30,40 @@ body {
   margin-top: 1rem;
 }
 
+#xinput-section {
+  background: #f0f0f0;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+}
+
+#xinput-section h2 {
+  margin: 0 0 0.5rem;
+  color: #333;
+}
+
+#xinput-mapping {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.xinput-mapping-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.xinput-mapping-row label {
+  flex: 1;
+}
+
+.xinput-mapping-row select {
+  min-width: 10rem;
+  font-size: 1rem;
+}
+
 #active-display {
   flex: 0 0 auto;
   position: sticky;

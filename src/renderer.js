@@ -22,6 +22,8 @@ let syncInProgress = false;
 let ledFlashInterval = null;
 let ledFlashOn = false;
 const guestToggle = document.getElementById('guest-toggle');
+const xinputToggle = document.getElementById('xinput-toggle');
+const xinputMappingContainer = document.getElementById('xinput-mapping');
 let prevNunchukButtons = { z: false, c: false };
 let lastWiimoteLogAt = 0;
 let lastNunchukLogAt = 0;
@@ -31,6 +33,9 @@ let lastMouseMoveSentAt = 0;
 let pendingMouseMove = { dx: 0, dy: 0 };
 let mouseMoveTimer = null;
 let nunchukStickVisual = { el: null, cx0: 0, cy0: 0, x: 0, y: 0 };
+let xinputEnabled = false;
+let xinputMapping = null;
+let lastNunchukState = { stickX: 0, stickY: 0, cPressed: false, zPressed: false };
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -69,6 +74,272 @@ const resetMouseMove = () => {
   }
 };
 
+const XINPUT_ENABLED_KEY = 'xinput-enabled';
+const XINPUT_MAPPING_KEY = 'xinput-mapping';
+const DEFAULT_XINPUT_MAPPING = {
+  wiimote: {
+    dpad: {
+      up: 'Y',
+      right: 'B',
+      down: 'A',
+      left: 'X'
+    },
+    plus: 'START',
+    minus: 'BACK',
+    a: 'RT',
+    b: 'RB'
+  },
+  nunchuk: {
+    c: 'LT',
+    z: 'LB'
+  }
+};
+
+const XINPUT_TARGET_OPTIONS = [
+  { value: 'NONE', label: 'None' },
+  { value: 'A', label: 'A' },
+  { value: 'B', label: 'B' },
+  { value: 'X', label: 'X' },
+  { value: 'Y', label: 'Y' },
+  { value: 'LB', label: 'LB' },
+  { value: 'RB', label: 'RB' },
+  { value: 'LT', label: 'LT' },
+  { value: 'RT', label: 'RT' },
+  { value: 'START', label: 'Start' },
+  { value: 'BACK', label: 'Back' },
+  { value: 'LS', label: 'Left Stick Click' },
+  { value: 'RS', label: 'Right Stick Click' },
+  { value: 'GUIDE', label: 'Guide' },
+  { value: 'DPAD_UP', label: 'D-Pad Up' },
+  { value: 'DPAD_DOWN', label: 'D-Pad Down' },
+  { value: 'DPAD_LEFT', label: 'D-Pad Left' },
+  { value: 'DPAD_RIGHT', label: 'D-Pad Right' }
+];
+
+const XINPUT_MAPPING_ITEMS = [
+  { id: 'xinput-map-dpad-up', path: 'wiimote.dpad.up', label: 'Wiimote D-Pad Up' },
+  { id: 'xinput-map-dpad-right', path: 'wiimote.dpad.right', label: 'Wiimote D-Pad Right' },
+  { id: 'xinput-map-dpad-down', path: 'wiimote.dpad.down', label: 'Wiimote D-Pad Down' },
+  { id: 'xinput-map-dpad-left', path: 'wiimote.dpad.left', label: 'Wiimote D-Pad Left' },
+  { id: 'xinput-map-plus', path: 'wiimote.plus', label: 'Wiimote +' },
+  { id: 'xinput-map-minus', path: 'wiimote.minus', label: 'Wiimote -' },
+  { id: 'xinput-map-a', path: 'wiimote.a', label: 'Wiimote A' },
+  { id: 'xinput-map-b', path: 'wiimote.b', label: 'Wiimote B' },
+  { id: 'xinput-map-c', path: 'nunchuk.c', label: 'Nunchuk C' },
+  { id: 'xinput-map-z', path: 'nunchuk.z', label: 'Nunchuk Z' }
+];
+
+const cloneValue = (value) => JSON.parse(JSON.stringify(value));
+
+const mergeMapping = (base, override) => {
+  if (!override || typeof override !== 'object') return base;
+  const result = Array.isArray(base) ? [...base] : { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      result[key] = mergeMapping(result[key] ?? {}, value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+};
+
+const getMappingValue = (mapping, path) => path.split('.').reduce((acc, key) => acc?.[key], mapping);
+
+const setMappingValue = (mapping, path, value) => {
+  const parts = path.split('.');
+  let target = mapping;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const part = parts[i];
+    if (!target[part] || typeof target[part] !== 'object') {
+      target[part] = {};
+    }
+    target = target[part];
+  }
+  target[parts[parts.length - 1]] = value;
+};
+
+const loadXinputMapping = () => {
+  let mapping = cloneValue(DEFAULT_XINPUT_MAPPING);
+  const stored = localStorage.getItem(XINPUT_MAPPING_KEY);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      mapping = mergeMapping(mapping, parsed);
+    } catch {
+      localStorage.removeItem(XINPUT_MAPPING_KEY);
+    }
+  }
+  return mapping;
+};
+
+const buildXinputMappingUI = () => {
+  if (!xinputMappingContainer) return;
+  xinputMappingContainer.innerHTML = '';
+  XINPUT_MAPPING_ITEMS.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'xinput-mapping-row';
+    const label = document.createElement('label');
+    label.htmlFor = item.id;
+    label.textContent = item.label;
+    const select = document.createElement('select');
+    select.id = item.id;
+    XINPUT_TARGET_OPTIONS.forEach((opt) => {
+      const option = document.createElement('option');
+      option.value = opt.value;
+      option.textContent = opt.label;
+      select.appendChild(option);
+    });
+    const currentValue = getMappingValue(xinputMapping, item.path) ?? 'NONE';
+    select.value = currentValue;
+    select.addEventListener('change', (event) => {
+      setMappingValue(xinputMapping, item.path, event.target.value);
+      localStorage.setItem(XINPUT_MAPPING_KEY, JSON.stringify(xinputMapping));
+    });
+    row.appendChild(label);
+    row.appendChild(select);
+    xinputMappingContainer.appendChild(row);
+  });
+};
+
+const applyXinputTarget = (state, target) => {
+  switch (target) {
+    case 'A':
+    case 'B':
+    case 'X':
+    case 'Y':
+    case 'START':
+    case 'BACK':
+    case 'GUIDE':
+      state.buttons[target] = true;
+      break;
+    case 'LB':
+      state.buttons.LB = true;
+      break;
+    case 'RB':
+      state.buttons.RB = true;
+      break;
+    case 'LS':
+      state.buttons.LS = true;
+      break;
+    case 'RS':
+      state.buttons.RS = true;
+      break;
+    case 'LT':
+      state.triggers.left = 1;
+      break;
+    case 'RT':
+      state.triggers.right = 1;
+      break;
+    case 'DPAD_UP':
+      state.axes.dpadY = 1;
+      break;
+    case 'DPAD_DOWN':
+      state.axes.dpadY = -1;
+      break;
+    case 'DPAD_LEFT':
+      state.axes.dpadX = -1;
+      break;
+    case 'DPAD_RIGHT':
+      state.axes.dpadX = 1;
+      break;
+    default:
+      break;
+  }
+};
+
+const normalizeStickAxis = (value, deadzone) => {
+  if (Math.abs(value) <= deadzone) return 0;
+  const sign = Math.sign(value);
+  const magnitude = Math.abs(value);
+  const normalized = (magnitude - deadzone) / (1 - deadzone);
+  const boosted = Math.min(1, normalized * 1.2);
+  return sign * boosted;
+};
+
+const buildXinputState = (buttons) => {
+  const mapping = xinputMapping ?? DEFAULT_XINPUT_MAPPING;
+  const state = {
+    buttons: {},
+    axes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0, dpadX: 0, dpadY: 0 },
+    triggers: { left: 0, right: 0 }
+  };
+
+  if (buttons?.UP) applyXinputTarget(state, mapping.wiimote.dpad.up);
+  if (buttons?.RIGHT) applyXinputTarget(state, mapping.wiimote.dpad.right);
+  if (buttons?.DOWN) applyXinputTarget(state, mapping.wiimote.dpad.down);
+  if (buttons?.LEFT) applyXinputTarget(state, mapping.wiimote.dpad.left);
+  if (buttons?.PLUS) applyXinputTarget(state, mapping.wiimote.plus);
+  if (buttons?.MINUS) applyXinputTarget(state, mapping.wiimote.minus);
+  if (buttons?.A) applyXinputTarget(state, mapping.wiimote.a);
+  if (buttons?.B) applyXinputTarget(state, mapping.wiimote.b);
+  if (lastNunchukState.cPressed) applyXinputTarget(state, mapping.nunchuk.c);
+  if (lastNunchukState.zPressed) applyXinputTarget(state, mapping.nunchuk.z);
+
+  const deadzone = 0.08;
+  state.axes.leftX = normalizeStickAxis(lastNunchukState.stickX, deadzone);
+  state.axes.leftY = normalizeStickAxis(lastNunchukState.stickY, deadzone);
+  return state;
+};
+
+const sendXinputState = (buttons) => {
+  if (!xinputEnabled || !systemApi?.xinputUpdate) return;
+  const state = buildXinputState(buttons);
+  systemApi.xinputUpdate(state);
+};
+
+const applyCurrentLedState = () => {
+  if (!wiimote) return;
+  if (xinputEnabled) {
+    wiimote.setLEDs(true, false, false, true);
+    return;
+  }
+  switch (currentMode) {
+    case MODES.MEDIA:
+      wiimote.setLEDs(true, false, false, false);
+      break;
+    case MODES.NAV:
+      wiimote.setLEDs(false, true, false, false);
+      break;
+    case MODES.PRES:
+      wiimote.setLEDs(false, false, true, false);
+      break;
+    case MODES.KBD:
+      wiimote.setLEDs(false, false, false, true);
+      break;
+    default:
+      break;
+  }
+};
+
+const setXinputEnabled = async (enabled) => {
+  const desired = Boolean(enabled);
+  xinputEnabled = desired;
+  localStorage.setItem(XINPUT_ENABLED_KEY, xinputEnabled);
+  if (xinputToggle) {
+    xinputToggle.checked = xinputEnabled;
+  }
+  updateWiimoteLedDisplay();
+  applyCurrentLedState();
+  if (systemApi?.xinputToggle) {
+    const result = await systemApi.xinputToggle(xinputEnabled);
+    if (!result?.ok) {
+      xinputEnabled = false;
+      localStorage.setItem(XINPUT_ENABLED_KEY, xinputEnabled);
+      if (xinputToggle) {
+        xinputToggle.checked = false;
+      }
+      updateWiimoteLedDisplay();
+      applyCurrentLedState();
+      statusDiv.textContent = `Status: XInput error${result?.error ? ` - ${result.error}` : ''}`;
+      return;
+    }
+  }
+  if (xinputEnabled) {
+    sendXinputState(prevButtons);
+  }
+};
+
 if (systemApi?.syncWiimote) {
   console.log('Native sync helper available');
 } else {
@@ -93,6 +364,22 @@ if (guestToggle) {
     guestMode = e.target.checked;
     localStorage.setItem('wiimote-guest-mode', guestMode);
   });
+}
+
+xinputMapping = loadXinputMapping();
+buildXinputMappingUI();
+const storedXinputEnabled = localStorage.getItem(XINPUT_ENABLED_KEY);
+if (storedXinputEnabled !== null) {
+  xinputEnabled = storedXinputEnabled === 'true';
+}
+if (xinputToggle) {
+  xinputToggle.checked = xinputEnabled;
+  xinputToggle.addEventListener('change', (e) => {
+    setXinputEnabled(e.target.checked);
+  });
+}
+if (xinputEnabled) {
+  setXinputEnabled(true);
 }
 
 autosyncToggle.addEventListener('change', (e) => {
@@ -334,6 +621,8 @@ function updateWiimoteLedDisplay() {
     ledStates = [ledFlashOn, ledFlashOn, ledFlashOn, ledFlashOn];
   } else if (!wiimoteConnected) {
     ledStates = [false, false, false, false];
+  } else if (xinputEnabled) {
+    ledStates = [true, false, false, true];
   }
   for (let i = 0; i < 4; i += 1) {
     const led = wiimoteDisplay.querySelector(`#wiimote-led-${i + 1}`);
@@ -447,7 +736,7 @@ async function connectToDevice(device) {
     console.log('Renderer connected', { productName: device?.productName });
 
     // Initialize LED for first mode
-    wiimote.setLEDs(true, false, false, false);
+    applyCurrentLedState();
     setLedFlashActive(false);
     updateWiimoteLedDisplay();
 
@@ -473,6 +762,7 @@ async function connectToDevice(device) {
           systemApi.navControl('mouse-right-up');
           prevNunchukButtons = { z: false, c: false };
           resetMouseMove();
+          lastNunchukState = { stickX: 0, stickY: 0, cPressed: false, zPressed: false };
         }
         nunchukActive = extensionConnected;
         const nb = wiimoteDisplay.querySelector('#nunchuk-body');
@@ -498,6 +788,8 @@ async function connectToDevice(device) {
           lastNunchukInputLogAt = now;
         }
 
+        lastNunchukState = { stickX, stickY, cPressed, zPressed };
+
         const deadzone = 0.08;
         let moveX = 0;
         let moveY = 0;
@@ -514,8 +806,10 @@ async function connectToDevice(device) {
           moveY = sign * ((value - deadzone) / (1.0 - deadzone));
         }
 
-        if (moveX !== 0 || moveY !== 0) {
-          queueMouseMove(moveX * 20, -moveY * 20);
+        if (!xinputEnabled) {
+          if (moveX !== 0 || moveY !== 0) {
+            queueMouseMove(moveX * 20, -moveY * 20);
+          }
         }
 
         const zEl = wiimoteDisplay.querySelector('#nunchuk-btn-Z');
@@ -539,19 +833,28 @@ async function connectToDevice(device) {
           nunchukStickVisual.el.setAttribute('cy', cy);
         }
 
-        if (zPressed && !prevNunchukButtons.z) {
-          systemApi.navControl('mouse-left-down');
-        } else if (!zPressed && prevNunchukButtons.z) {
-          systemApi.navControl('mouse-left-up');
-        }
+        if (!xinputEnabled) {
+          if (zPressed && !prevNunchukButtons.z) {
+            systemApi.navControl('mouse-left-down');
+          } else if (!zPressed && prevNunchukButtons.z) {
+            systemApi.navControl('mouse-left-up');
+          }
 
-        if (cPressed && !prevNunchukButtons.c) {
-          systemApi.navControl('mouse-right-down');
-        } else if (!cPressed && prevNunchukButtons.c) {
-          systemApi.navControl('mouse-right-up');
+          if (cPressed && !prevNunchukButtons.c) {
+            systemApi.navControl('mouse-right-down');
+          } else if (!cPressed && prevNunchukButtons.c) {
+            systemApi.navControl('mouse-right-up');
+          }
         }
 
         prevNunchukButtons = { z: zPressed, c: cPressed };
+      }
+
+      if (xinputEnabled) {
+        sendXinputState(buttons);
+        prevButtons = { ...buttons };
+        updateWiimoteDisplayState(buttons);
+        return;
       }
 
       // Detection of button transitions
@@ -619,17 +922,7 @@ async function connectToDevice(device) {
         lastButtonPressed = 'MODE';
         
         // Update LEDs to indicate mode
-        if (wiimote) {
-          if (currentMode === MODES.MEDIA) {
-            wiimote.setLEDs(true, false, false, false); // LED 1
-          } else if (currentMode === MODES.NAV) {
-            wiimote.setLEDs(false, true, false, false); // LED 2
-          } else if (currentMode === MODES.PRES) {
-            wiimote.setLEDs(false, false, true, false); // LED 3
-          } else {
-            wiimote.setLEDs(false, false, false, true); // LED 4 for Keyboard
-          }
-        }
+        applyCurrentLedState();
         updateWiimoteLedDisplay();
 
         // Update UI
@@ -746,7 +1039,7 @@ async function connectToDevice(device) {
             if (kbdContainer) kbdContainer.style.display = 'none';
             const presHelp = document.getElementById('pres-controls');
             if (presHelp) presHelp.style.display = 'block';
-            if (wiimote) wiimote.setLEDs(false, false, true, false);
+            applyCurrentLedState();
           } else {
             pressedButton = 'START-PRES';
           }

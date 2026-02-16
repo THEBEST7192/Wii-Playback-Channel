@@ -3,11 +3,15 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { spawn, exec } from 'node:child_process';
 import started from 'electron-squirrel-startup';
+import ViGEmClient from 'vigemclient';
 
 let mainWindow;
 let keyboardWindow;
 let lastMouseMoveAt = 0;
 let mouseWorker = null;
+let xinputClient = null;
+let xinputController = null;
+let xinputEnabled = false;
 
 const startMouseWorker = () => {
   if (mouseWorker) {
@@ -22,6 +26,87 @@ const startMouseWorker = () => {
     console.error('Mouse worker error', data.toString().trim());
   });
 };
+
+const ensureXinputController = () => {
+  if (!xinputClient) {
+    xinputClient = new ViGEmClient();
+    const err = xinputClient.connect();
+    if (err) {
+      xinputClient = null;
+      throw err;
+    }
+  }
+  if (!xinputController) {
+    xinputController = xinputClient.createX360Controller();
+    const err = xinputController.connect();
+    if (err) {
+      xinputController = null;
+      throw err;
+    }
+    xinputController.updateMode = 'manual';
+  }
+};
+
+const resetXinputController = () => {
+  if (!xinputController) return;
+  xinputController.resetInputs();
+  xinputController.update();
+  xinputController.disconnect();
+  xinputController = null;
+};
+
+ipcMain.handle('xinput-toggle', async (_event, enabled) => {
+  const desired = Boolean(enabled);
+  if (!desired) {
+    xinputEnabled = false;
+    resetXinputController();
+    return { ok: true };
+  }
+  try {
+    ensureXinputController();
+    xinputEnabled = true;
+    return { ok: true };
+  } catch (error) {
+    xinputEnabled = false;
+    resetXinputController();
+    return { ok: false, error: error?.message || 'XInput initialization failed' };
+  }
+});
+
+ipcMain.on('xinput-update', (_event, state) => {
+  if (!xinputEnabled || !xinputController) return;
+  const buttons = state?.buttons || {};
+  const axes = state?.axes || {};
+  const triggers = state?.triggers || {};
+
+  const setButton = (name, value) => {
+    const btn = xinputController.button?.[name];
+    if (btn) btn.setValue(Boolean(value));
+  };
+
+  setButton('A', buttons.A);
+  setButton('B', buttons.B);
+  setButton('X', buttons.X);
+  setButton('Y', buttons.Y);
+  setButton('LEFT_SHOULDER', buttons.LB);
+  setButton('RIGHT_SHOULDER', buttons.RB);
+  setButton('START', buttons.START);
+  setButton('BACK', buttons.BACK);
+  setButton('LEFT_THUMB', buttons.LS);
+  setButton('RIGHT_THUMB', buttons.RS);
+  setButton('GUIDE', buttons.GUIDE);
+
+  xinputController.axis.leftX.setValue(axes.leftX ?? 0);
+  xinputController.axis.leftY.setValue(axes.leftY ?? 0);
+  xinputController.axis.rightX.setValue(axes.rightX ?? 0);
+  xinputController.axis.rightY.setValue(axes.rightY ?? 0);
+  xinputController.axis.dpadHorz.setValue(axes.dpadX ?? 0);
+  xinputController.axis.dpadVert.setValue(axes.dpadY ?? 0);
+  xinputController.axis.leftTrigger.setValue(triggers.left ?? 0);
+  xinputController.axis.rightTrigger.setValue(triggers.right ?? 0);
+
+  xinputController.update();
+});
 
 // Navigation control using PowerShell
 ipcMain.on('nav-control', (event, arg) => {
