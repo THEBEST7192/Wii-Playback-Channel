@@ -82,23 +82,25 @@ const XINPUT_ENABLED_KEY = 'xinput-enabled';
 const XINPUT_MAPPING_KEY = 'xinput-mapping';
 const XINPUT_CALIBRATION_KEY = 'xinput-calibration';
 const DEFAULT_XINPUT_CALIBRATION = {
-  scaleX: 1,
-  scaleY: 1,
+  scaleX: 1.6,
+  scaleY: 1.6,
   deadzone: 0.08
 };
 const DEFAULT_XINPUT_MAPPING = {
-  modifier: 'NONE',
+  modifier: 'nunchuk.z',
   wiimote: {
     dpad: {
-      up: { primary: 'Y', modified: 'NONE' },
-      right: { primary: 'B', modified: 'NONE' },
-      down: { primary: 'A', modified: 'NONE' },
-      left: { primary: 'X', modified: 'NONE' }
+      up: { primary: 'Y', modified: 'DPAD_UP' },
+      right: { primary: 'B', modified: 'DPAD_RIGHT' },
+      down: { primary: 'A', modified: 'DPAD_DOWN' },
+      left: { primary: 'X', modified: 'DPAD_LEFT' }
     },
     plus: { primary: 'START', modified: 'NONE' },
     minus: { primary: 'BACK', modified: 'NONE' },
     a: { primary: 'RT', modified: 'NONE' },
-    b: { primary: 'RB', modified: 'NONE' }
+    b: { primary: 'RB', modified: 'NONE' },
+    1: { primary: 'LS', modified: 'NONE' },
+    2: { primary: 'RS', modified: 'NONE' }
   },
   nunchuk: {
     c: { primary: 'LT', modified: 'NONE' },
@@ -158,7 +160,9 @@ const XINPUT_MAPPING_ITEMS = [
   { id: 'xinput-map-a', path: 'wiimote.a', label: 'Wiimote A' },
   { id: 'xinput-map-b', path: 'wiimote.b', label: 'Wiimote B' },
   { id: 'xinput-map-c', path: 'nunchuk.c', label: 'Nunchuk C' },
-  { id: 'xinput-map-z', path: 'nunchuk.z', label: 'Nunchuk Z' }
+  { id: 'xinput-map-z', path: 'nunchuk.z', label: 'Nunchuk Z' },
+  { id: 'xinput-map-1', path: 'wiimote.1', label: 'Wiimote 1' },
+  { id: 'xinput-map-2', path: 'wiimote.2', label: 'Wiimote 2' }
 ];
 
 const cloneValue = (value) => JSON.parse(JSON.stringify(value));
@@ -591,6 +595,8 @@ const buildXinputState = (buttons) => {
   resolve('wiimote.b', buttons?.B);
   resolve('nunchuk.c', lastNunchukState.cPressed);
   resolve('nunchuk.z', lastNunchukState.zPressed);
+  resolve('wiimote.1', buttons?.ONE);
+  resolve('wiimote.2', buttons?.TWO);
 
   const deadzone = xinputCalibration?.deadzone ?? DEFAULT_XINPUT_CALIBRATION.deadzone;
   const scaleX = xinputCalibration?.scaleX ?? DEFAULT_XINPUT_CALIBRATION.scaleX;
@@ -918,7 +924,9 @@ function updateWiimoteDisplayState(buttons) {
     B: 'wiimote-btn-B',
     HOME: 'wiimote-btn-HOME',
     PLUS: 'wiimote-btn-PLUS',
-    MINUS: 'wiimote-btn-MINUS'
+    MINUS: 'wiimote-btn-MINUS',
+    ONE: 'wiimote-btn-1',
+    TWO: 'wiimote-btn-2'
   };
 
   for (const [btn, id] of Object.entries(buttonIdByName)) {
