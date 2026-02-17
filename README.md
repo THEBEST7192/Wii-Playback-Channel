@@ -5,7 +5,7 @@
 - Install VSSetup module for PowerShell using "Install-Module VSSetup -Scope AllUsers" for more details see https://github.com/microsoft/vssetup.powershell
 - Install Visual Studio 2022 Build Tools using chocolatey "choco install visualstudio2022buildtools -y"
 - Install visual studio 2022 workloads using chocolatey "choco install visualstudio2022-workload-vctools -y" see https://github.com/nodejs/node-gyp#on-windows for more details  
-- Install Python 3 using chocolatey "choco install python --version 3.12.10 --force" deretter "C:\Python312\python.exe -m pip install setuptools"
+- Install Python 3.12 using chocolatey "choco install python --version 3.12.10 --force" deretter "C:\Python312\python.exe -m pip install setuptools"
 - Global install node-gyp using "npm install -g node-gyp"
 - Node.js
 

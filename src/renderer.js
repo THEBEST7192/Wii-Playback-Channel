@@ -24,6 +24,7 @@ let ledFlashOn = false;
 const guestToggle = document.getElementById('guest-toggle');
 const xinputToggle = document.getElementById('xinput-toggle');
 const xinputMappingContainer = document.getElementById('xinput-mapping');
+const xinputCalibrationContainer = document.getElementById('xinput-calibration');
 let prevNunchukButtons = { z: false, c: false };
 let lastWiimoteLogAt = 0;
 let lastNunchukLogAt = 0;
@@ -35,6 +36,7 @@ let mouseMoveTimer = null;
 let nunchukStickVisual = { el: null, cx0: 0, cy0: 0, x: 0, y: 0 };
 let xinputEnabled = false;
 let xinputMapping = null;
+let xinputCalibration = null;
 let lastNunchukState = { stickX: 0, stickY: 0, cPressed: false, zPressed: false };
 
 const sleep = (ms) => new Promise((resolve) => {
@@ -76,6 +78,12 @@ const resetMouseMove = () => {
 
 const XINPUT_ENABLED_KEY = 'xinput-enabled';
 const XINPUT_MAPPING_KEY = 'xinput-mapping';
+const XINPUT_CALIBRATION_KEY = 'xinput-calibration';
+const DEFAULT_XINPUT_CALIBRATION = {
+  scaleX: 1,
+  scaleY: 1,
+  deadzone: 0.08
+};
 const DEFAULT_XINPUT_MAPPING = {
   wiimote: {
     dpad: {
@@ -202,6 +210,146 @@ const buildXinputMappingUI = () => {
   });
 };
 
+const clampCalibrationValue = (value, min, max, fallback) => {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
+const loadXinputCalibration = () => {
+  let calibration = { ...DEFAULT_XINPUT_CALIBRATION };
+  const stored = localStorage.getItem(XINPUT_CALIBRATION_KEY);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      calibration = {
+        scaleX: clampCalibrationValue(parsed.scaleX, 0.5, 1.8, DEFAULT_XINPUT_CALIBRATION.scaleX),
+        scaleY: clampCalibrationValue(parsed.scaleY, 0.5, 1.8, DEFAULT_XINPUT_CALIBRATION.scaleY),
+        deadzone: clampCalibrationValue(parsed.deadzone, 0, 0.4, DEFAULT_XINPUT_CALIBRATION.deadzone)
+      };
+    } catch {
+      localStorage.removeItem(XINPUT_CALIBRATION_KEY);
+    }
+  }
+  return calibration;
+};
+
+const saveXinputCalibration = () => {
+  localStorage.setItem(XINPUT_CALIBRATION_KEY, JSON.stringify(xinputCalibration));
+};
+
+const formatAxisValue = (value) => Number(value ?? 0).toFixed(2);
+
+const updateXinputCalibrationDisplay = () => {
+  const rawX = document.getElementById('xinput-calibration-raw-x');
+  const rawY = document.getElementById('xinput-calibration-raw-y');
+  const outX = document.getElementById('xinput-calibration-out-x');
+  const outY = document.getElementById('xinput-calibration-out-y');
+  if (!rawX || !rawY || !outX || !outY) return;
+
+  const deadzone = xinputCalibration?.deadzone ?? DEFAULT_XINPUT_CALIBRATION.deadzone;
+  const scaleX = xinputCalibration?.scaleX ?? DEFAULT_XINPUT_CALIBRATION.scaleX;
+  const scaleY = xinputCalibration?.scaleY ?? DEFAULT_XINPUT_CALIBRATION.scaleY;
+  const inputX = lastNunchukState?.stickX ?? 0;
+  const inputY = lastNunchukState?.stickY ?? 0;
+  const outputX = normalizeStickAxis(inputX, deadzone, scaleX);
+  const outputY = normalizeStickAxis(inputY, deadzone, scaleY);
+
+  rawX.textContent = formatAxisValue(inputX);
+  rawY.textContent = formatAxisValue(inputY);
+  outX.textContent = formatAxisValue(outputX);
+  outY.textContent = formatAxisValue(outputY);
+};
+
+const buildXinputCalibrationUI = () => {
+  if (!xinputCalibrationContainer) return;
+  xinputCalibrationContainer.innerHTML = '';
+
+  const buildRow = (labelText, value, min, max, step, onChange) => {
+    const row = document.createElement('div');
+    row.className = 'xinput-calibration-row';
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(value);
+    input.addEventListener('change', (event) => {
+      const nextValue = clampCalibrationValue(event.target.value, min, max, value);
+      event.target.value = String(nextValue);
+      onChange(nextValue);
+    });
+    row.appendChild(label);
+    row.appendChild(input);
+    xinputCalibrationContainer.appendChild(row);
+  };
+
+  buildRow('Left Stick X Scale', xinputCalibration.scaleX, 0.5, 1.8, 0.01, (value) => {
+    xinputCalibration.scaleX = value;
+    saveXinputCalibration();
+    updateXinputCalibrationDisplay();
+  });
+
+  buildRow('Left Stick Y Scale', xinputCalibration.scaleY, 0.5, 1.8, 0.01, (value) => {
+    xinputCalibration.scaleY = value;
+    saveXinputCalibration();
+    updateXinputCalibrationDisplay();
+  });
+
+  buildRow('Left Stick Deadzone', xinputCalibration.deadzone, 0, 0.4, 0.01, (value) => {
+    xinputCalibration.deadzone = value;
+    saveXinputCalibration();
+    updateXinputCalibrationDisplay();
+  });
+
+  const display = document.createElement('div');
+  display.className = 'xinput-calibration-display';
+  const displayRows = [
+    {
+      label: 'Stick X',
+      values: [
+        { text: 'Raw', id: 'xinput-calibration-raw-x' },
+        { text: 'Out', id: 'xinput-calibration-out-x' }
+      ]
+    },
+    {
+      label: 'Stick Y',
+      values: [
+        { text: 'Raw', id: 'xinput-calibration-raw-y' },
+        { text: 'Out', id: 'xinput-calibration-out-y' }
+      ]
+    }
+  ];
+  displayRows.forEach((row) => {
+    const line = document.createElement('div');
+    line.className = 'xinput-calibration-display-row';
+    const label = document.createElement('span');
+    label.textContent = row.label;
+    line.appendChild(label);
+    const valueGroup = document.createElement('div');
+    valueGroup.className = 'xinput-calibration-display-values';
+    row.values.forEach((valueDef) => {
+      const value = document.createElement('span');
+      value.id = valueDef.id;
+      value.textContent = '0.00';
+      const labelValue = document.createElement('span');
+      labelValue.textContent = `${valueDef.text}:`;
+      const pair = document.createElement('span');
+      pair.className = 'xinput-calibration-display-pair';
+      pair.appendChild(labelValue);
+      pair.appendChild(value);
+      valueGroup.appendChild(pair);
+    });
+    line.appendChild(valueGroup);
+    display.appendChild(line);
+  });
+  xinputCalibrationContainer.appendChild(display);
+
+  updateXinputCalibrationDisplay();
+};
+
 const applyXinputTarget = (state, target) => {
   switch (target) {
     case 'A':
@@ -248,13 +396,13 @@ const applyXinputTarget = (state, target) => {
   }
 };
 
-const normalizeStickAxis = (value, deadzone) => {
-  if (Math.abs(value) <= deadzone) return 0;
-  const sign = Math.sign(value);
-  const magnitude = Math.abs(value);
+const normalizeStickAxis = (value, deadzone, scale) => {
+  const scaled = Math.max(-1, Math.min(1, value * scale));
+  if (Math.abs(scaled) <= deadzone) return 0;
+  const sign = Math.sign(scaled);
+  const magnitude = Math.abs(scaled);
   const normalized = (magnitude - deadzone) / (1 - deadzone);
-  const boosted = Math.min(1, normalized * 1.2);
-  return sign * boosted;
+  return sign * Math.min(1, normalized);
 };
 
 const buildXinputState = (buttons) => {
@@ -276,9 +424,11 @@ const buildXinputState = (buttons) => {
   if (lastNunchukState.cPressed) applyXinputTarget(state, mapping.nunchuk.c);
   if (lastNunchukState.zPressed) applyXinputTarget(state, mapping.nunchuk.z);
 
-  const deadzone = 0.08;
-  state.axes.leftX = normalizeStickAxis(lastNunchukState.stickX, deadzone);
-  state.axes.leftY = normalizeStickAxis(lastNunchukState.stickY, deadzone);
+  const deadzone = xinputCalibration?.deadzone ?? DEFAULT_XINPUT_CALIBRATION.deadzone;
+  const scaleX = xinputCalibration?.scaleX ?? DEFAULT_XINPUT_CALIBRATION.scaleX;
+  const scaleY = xinputCalibration?.scaleY ?? DEFAULT_XINPUT_CALIBRATION.scaleY;
+  state.axes.leftX = normalizeStickAxis(lastNunchukState.stickX, deadzone, scaleX);
+  state.axes.leftY = normalizeStickAxis(lastNunchukState.stickY, deadzone, scaleY);
   return state;
 };
 
@@ -368,6 +518,16 @@ if (guestToggle) {
 
 xinputMapping = loadXinputMapping();
 buildXinputMappingUI();
+xinputCalibration = loadXinputCalibration();
+buildXinputCalibrationUI();
+const xinputResetCalibration = document.getElementById('xinput-reset-calibration');
+if (xinputResetCalibration) {
+  xinputResetCalibration.addEventListener('click', () => {
+    xinputCalibration = { ...DEFAULT_XINPUT_CALIBRATION };
+    saveXinputCalibration();
+    buildXinputCalibrationUI();
+  });
+}
 const storedXinputEnabled = localStorage.getItem(XINPUT_ENABLED_KEY);
 if (storedXinputEnabled !== null) {
   xinputEnabled = storedXinputEnabled === 'true';
@@ -789,6 +949,7 @@ async function connectToDevice(device) {
         }
 
         lastNunchukState = { stickX, stickY, cPressed, zPressed };
+        updateXinputCalibrationDisplay();
 
         const deadzone = 0.08;
         let moveX = 0;

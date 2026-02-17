@@ -25,13 +25,22 @@
         <div id="status">Status: Disconnected</div>
 
         <div id="xinput-section">
-          <h2>XInput</h2>
+          <div id="xinput-header">
+            <h2>XInput</h2>
+            <button id="xinput-reset-calibration" type="button">Reset Calibration</button>
+          </div>
           <label>
             <input type="checkbox" id="xinput-toggle"> Enable XInput (ViGEm)
           </label>
           <div id="xinput-mapping"></div>
+          <div id="xinput-calibration"></div>
         </div>
 
+      </div>
+
+      <div id="active-display">
+        <h3>Buttons:</h3>
+        <div id="wiimote-display"></div>
         <div id="controls-guide">
           <h2 id="current-mode-title">Mode: Media Playback</h2>
           <div class="mode-help" id="media-controls">
@@ -72,11 +81,6 @@
               <p><strong>HOME</strong>: Toggle Shift</p>
             </div>
         </div>
-      </div>
-
-      <div id="active-display">
-        <h3>Buttons:</h3>
-        <div id="wiimote-display"></div>
       </div>
     </div>
     <script type="module" src="/src/renderer.js"></script>
