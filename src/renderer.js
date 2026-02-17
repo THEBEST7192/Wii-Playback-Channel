@@ -38,6 +38,8 @@ let xinputEnabled = false;
 let xinputMapping = null;
 let xinputCalibration = null;
 let lastNunchukState = { stickX: 0, stickY: 0, cPressed: false, zPressed: false };
+let modifierWasPressed = false;
+let modifierUsedThisHold = false;
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -85,23 +87,37 @@ const DEFAULT_XINPUT_CALIBRATION = {
   deadzone: 0.08
 };
 const DEFAULT_XINPUT_MAPPING = {
+  modifier: 'NONE',
   wiimote: {
     dpad: {
-      up: 'Y',
-      right: 'B',
-      down: 'A',
-      left: 'X'
+      up: { primary: 'Y', modified: 'NONE' },
+      right: { primary: 'B', modified: 'NONE' },
+      down: { primary: 'A', modified: 'NONE' },
+      left: { primary: 'X', modified: 'NONE' }
     },
-    plus: 'START',
-    minus: 'BACK',
-    a: 'RT',
-    b: 'RB'
+    plus: { primary: 'START', modified: 'NONE' },
+    minus: { primary: 'BACK', modified: 'NONE' },
+    a: { primary: 'RT', modified: 'NONE' },
+    b: { primary: 'RB', modified: 'NONE' }
   },
   nunchuk: {
-    c: 'LT',
-    z: 'LB'
+    c: { primary: 'LT', modified: 'NONE' },
+    z: { primary: 'LB', modified: 'NONE' },
+    stick: { primary: 'LEFT_STICK', modified: 'RIGHT_STICK' }
   }
 };
+
+const MODIFIER_OPTIONS = [
+  { value: 'NONE', label: 'None' },
+  { value: 'wiimote.a', label: 'Wiimote A' },
+  { value: 'wiimote.b', label: 'Wiimote B' },
+  { value: 'wiimote.minus', label: 'Wiimote -' },
+  { value: 'wiimote.plus', label: 'Wiimote +' },
+  { value: 'wiimote.1', label: 'Wiimote 1' },
+  { value: 'wiimote.2', label: 'Wiimote 2' },
+  { value: 'nunchuk.c', label: 'Nunchuk C' },
+  { value: 'nunchuk.z', label: 'Nunchuk Z' }
+];
 
 const XINPUT_TARGET_OPTIONS = [
   { value: 'NONE', label: 'None' },
@@ -124,7 +140,15 @@ const XINPUT_TARGET_OPTIONS = [
   { value: 'DPAD_RIGHT', label: 'D-Pad Right' }
 ];
 
+const XINPUT_STICK_TARGET_OPTIONS = [
+  { value: 'NONE', label: 'None' },
+  { value: 'LEFT_STICK', label: 'Left Stick' },
+  { value: 'RIGHT_STICK', label: 'Right Stick' },
+  { value: 'DPAD', label: 'D-Pad' }
+];
+
 const XINPUT_MAPPING_ITEMS = [
+  { id: 'xinput-map-stick', path: 'nunchuk.stick', label: 'Nunchuk Stick', type: 'stick' },
   { id: 'xinput-map-dpad-up', path: 'wiimote.dpad.up', label: 'Wiimote D-Pad Up' },
   { id: 'xinput-map-dpad-right', path: 'wiimote.dpad.right', label: 'Wiimote D-Pad Right' },
   { id: 'xinput-map-dpad-down', path: 'wiimote.dpad.down', label: 'Wiimote D-Pad Down' },
@@ -174,6 +198,28 @@ const loadXinputMapping = () => {
     try {
       const parsed = JSON.parse(stored);
       mapping = mergeMapping(mapping, parsed);
+      
+      // Ensure modifier exists
+      if (!mapping.modifier) mapping.modifier = 'NONE';
+      
+      // Sanitize/Migrate leaves
+      XINPUT_MAPPING_ITEMS.forEach(item => {
+        const val = getMappingValue(mapping, item.path);
+        if (typeof val === 'string') {
+           setMappingValue(mapping, item.path, { primary: val, modified: 'NONE' });
+        } else if (typeof val === 'object' && val !== null) {
+           // For stick, defaults are different if missing
+           const defaultPrimary = item.type === 'stick' ? 'LEFT_STICK' : 'NONE';
+           const defaultModified = item.type === 'stick' ? 'RIGHT_STICK' : 'NONE';
+
+           if (!val.primary) val.primary = defaultPrimary;
+           if (!val.modified) val.modified = defaultModified;
+        } else {
+           const defaultPrimary = item.type === 'stick' ? 'LEFT_STICK' : 'NONE';
+           const defaultModified = item.type === 'stick' ? 'RIGHT_STICK' : 'NONE';
+           setMappingValue(mapping, item.path, { primary: defaultPrimary, modified: defaultModified });
+        }
+      });
     } catch {
       localStorage.removeItem(XINPUT_MAPPING_KEY);
     }
@@ -184,28 +230,85 @@ const loadXinputMapping = () => {
 const buildXinputMappingUI = () => {
   if (!xinputMappingContainer) return;
   xinputMappingContainer.innerHTML = '';
+
+  // Modifier Selector
+  const modRow = document.createElement('div');
+  modRow.className = 'xinput-mapping-row xinput-modifier-row';
+  modRow.style.marginBottom = '1rem';
+  modRow.style.paddingBottom = '0.5rem';
+  modRow.style.borderBottom = '1px solid #ccc';
+  
+  const modLabel = document.createElement('label');
+  modLabel.textContent = 'Modifier Key:';
+  const modSelect = document.createElement('select');
+  MODIFIER_OPTIONS.forEach(opt => {
+      const option = document.createElement('option');
+      option.value = opt.value;
+      option.textContent = opt.label;
+      modSelect.appendChild(option);
+  });
+  modSelect.value = xinputMapping.modifier || 'NONE';
+  modSelect.addEventListener('change', (e) => {
+      xinputMapping.modifier = e.target.value;
+      localStorage.setItem(XINPUT_MAPPING_KEY, JSON.stringify(xinputMapping));
+  });
+  modRow.appendChild(modLabel);
+  modRow.appendChild(modSelect);
+  xinputMappingContainer.appendChild(modRow);
+
+  // Headers
+  const headerRow = document.createElement('div');
+  headerRow.className = 'xinput-mapping-row';
+  headerRow.style.fontWeight = 'bold';
+  headerRow.innerHTML = `
+    <span style="flex: 1">Button</span>
+    <span style="width: 8rem; margin-right: 0.75rem;">Primary</span>
+    <span style="width: 8rem">Modified</span>
+  `;
+  xinputMappingContainer.appendChild(headerRow);
+
   XINPUT_MAPPING_ITEMS.forEach((item) => {
     const row = document.createElement('div');
     row.className = 'xinput-mapping-row';
     const label = document.createElement('label');
     label.htmlFor = item.id;
     label.textContent = item.label;
-    const select = document.createElement('select');
-    select.id = item.id;
-    XINPUT_TARGET_OPTIONS.forEach((opt) => {
-      const option = document.createElement('option');
-      option.value = opt.value;
-      option.textContent = opt.label;
-      select.appendChild(option);
-    });
-    const currentValue = getMappingValue(xinputMapping, item.path) ?? 'NONE';
-    select.value = currentValue;
-    select.addEventListener('change', (event) => {
-      setMappingValue(xinputMapping, item.path, event.target.value);
-      localStorage.setItem(XINPUT_MAPPING_KEY, JSON.stringify(xinputMapping));
-    });
+    
+    const mappingValue = getMappingValue(xinputMapping, item.path);
+    const primaryVal = mappingValue?.primary || 'NONE';
+    const modifiedVal = mappingValue?.modified || 'NONE';
+
+    const createSelect = (initialVal, field) => {
+        const select = document.createElement('select');
+        select.style.width = '8rem';
+        select.style.minWidth = '0';
+        
+        const options = item.type === 'stick' ? XINPUT_STICK_TARGET_OPTIONS : XINPUT_TARGET_OPTIONS;
+        options.forEach((opt) => {
+          const option = document.createElement('option');
+          option.value = opt.value;
+          option.textContent = opt.label;
+          select.appendChild(option);
+        });
+        select.value = initialVal;
+        select.addEventListener('change', (event) => {
+          const current = getMappingValue(xinputMapping, item.path);
+          const newVal = (typeof current === 'string') 
+             ? { primary: current, modified: 'NONE' } 
+             : { ...current };
+          newVal[field] = event.target.value;
+          setMappingValue(xinputMapping, item.path, newVal);
+          localStorage.setItem(XINPUT_MAPPING_KEY, JSON.stringify(xinputMapping));
+        });
+        return select;
+    };
+
+    const primarySelect = createSelect(primaryVal, 'primary');
+    const modifiedSelect = createSelect(modifiedVal, 'modified');
+
     row.appendChild(label);
-    row.appendChild(select);
+    row.appendChild(primarySelect);
+    row.appendChild(modifiedSelect);
     xinputMappingContainer.appendChild(row);
   });
 };
@@ -405,6 +508,28 @@ const normalizeStickAxis = (value, deadzone, scale) => {
   return sign * Math.min(1, normalized);
 };
 
+const isButtonPressed = (path, buttons, nunchukState) => {
+  if (!path || path === 'NONE') return false;
+  if (path.startsWith('wiimote.')) {
+    if (path === 'wiimote.a') return buttons?.A;
+    if (path === 'wiimote.b') return buttons?.B;
+    if (path === 'wiimote.plus') return buttons?.PLUS;
+    if (path === 'wiimote.minus') return buttons?.MINUS;
+    if (path === 'wiimote.home') return buttons?.HOME;
+    if (path === 'wiimote.1') return buttons?.ONE;
+    if (path === 'wiimote.2') return buttons?.TWO;
+    if (path === 'wiimote.dpad.up') return buttons?.UP;
+    if (path === 'wiimote.dpad.down') return buttons?.DOWN;
+    if (path === 'wiimote.dpad.left') return buttons?.LEFT;
+    if (path === 'wiimote.dpad.right') return buttons?.RIGHT;
+  }
+  if (path.startsWith('nunchuk.')) {
+    if (path === 'nunchuk.c') return nunchukState?.cPressed;
+    if (path === 'nunchuk.z') return nunchukState?.zPressed;
+  }
+  return false;
+};
+
 const buildXinputState = (buttons) => {
   const mapping = xinputMapping ?? DEFAULT_XINPUT_MAPPING;
   const state = {
@@ -413,22 +538,93 @@ const buildXinputState = (buttons) => {
     triggers: { left: 0, right: 0 }
   };
 
-  if (buttons?.UP) applyXinputTarget(state, mapping.wiimote.dpad.up);
-  if (buttons?.RIGHT) applyXinputTarget(state, mapping.wiimote.dpad.right);
-  if (buttons?.DOWN) applyXinputTarget(state, mapping.wiimote.dpad.down);
-  if (buttons?.LEFT) applyXinputTarget(state, mapping.wiimote.dpad.left);
-  if (buttons?.PLUS) applyXinputTarget(state, mapping.wiimote.plus);
-  if (buttons?.MINUS) applyXinputTarget(state, mapping.wiimote.minus);
-  if (buttons?.A) applyXinputTarget(state, mapping.wiimote.a);
-  if (buttons?.B) applyXinputTarget(state, mapping.wiimote.b);
-  if (lastNunchukState.cPressed) applyXinputTarget(state, mapping.nunchuk.c);
-  if (lastNunchukState.zPressed) applyXinputTarget(state, mapping.nunchuk.z);
+  const modifierPath = mapping.modifier;
+  const modifierPressed = isButtonPressed(modifierPath, buttons, lastNunchukState);
+
+  if (modifierPath && modifierPath !== 'NONE') {
+    if (modifierPressed && !modifierWasPressed) {
+      modifierWasPressed = true;
+      modifierUsedThisHold = false;
+    }
+    if (!modifierPressed && modifierWasPressed) {
+      if (!modifierUsedThisHold) {
+        const modifierMapVal = getMappingValue(mapping, modifierPath);
+        if (typeof modifierMapVal === 'string') {
+          applyXinputTarget(state, modifierMapVal);
+        } else if (modifierMapVal?.primary) {
+          applyXinputTarget(state, modifierMapVal.primary);
+        }
+      }
+      modifierWasPressed = false;
+      modifierUsedThisHold = false;
+    }
+  } else {
+    modifierWasPressed = false;
+    modifierUsedThisHold = false;
+  }
+
+  const resolve = (path, condition) => {
+     if (!condition) return;
+     const mapVal = getMappingValue(mapping, path);
+     if (typeof mapVal === 'string') {
+         applyXinputTarget(state, mapVal);
+     } else if (mapVal) {
+         const isModifierKey = path === modifierPath;
+         if (isModifierKey && modifierPressed) {
+           return;
+         }
+        const target = (modifierPressed && !isModifierKey) ? mapVal.modified : mapVal.primary;
+        if (modifierPressed && !isModifierKey && mapVal.modified && mapVal.modified !== 'NONE' && mapVal.modified !== mapVal.primary) {
+          modifierUsedThisHold = true;
+        }
+         applyXinputTarget(state, target);
+     }
+  };
+
+  resolve('wiimote.dpad.up', buttons?.UP);
+  resolve('wiimote.dpad.right', buttons?.RIGHT);
+  resolve('wiimote.dpad.down', buttons?.DOWN);
+  resolve('wiimote.dpad.left', buttons?.LEFT);
+  resolve('wiimote.plus', buttons?.PLUS);
+  resolve('wiimote.minus', buttons?.MINUS);
+  resolve('wiimote.a', buttons?.A);
+  resolve('wiimote.b', buttons?.B);
+  resolve('nunchuk.c', lastNunchukState.cPressed);
+  resolve('nunchuk.z', lastNunchukState.zPressed);
 
   const deadzone = xinputCalibration?.deadzone ?? DEFAULT_XINPUT_CALIBRATION.deadzone;
   const scaleX = xinputCalibration?.scaleX ?? DEFAULT_XINPUT_CALIBRATION.scaleX;
   const scaleY = xinputCalibration?.scaleY ?? DEFAULT_XINPUT_CALIBRATION.scaleY;
-  state.axes.leftX = normalizeStickAxis(lastNunchukState.stickX, deadzone, scaleX);
-  state.axes.leftY = normalizeStickAxis(lastNunchukState.stickY, deadzone, scaleY);
+  
+  const rawX = normalizeStickAxis(lastNunchukState.stickX, deadzone, scaleX);
+  const rawY = normalizeStickAxis(lastNunchukState.stickY, deadzone, scaleY);
+  
+  // Apply stick mapping
+  const stickMapping = mapping.nunchuk?.stick;
+  let target = 'LEFT_STICK'; // Default
+  if (stickMapping) {
+    target = modifierPressed ? stickMapping.modified : stickMapping.primary;
+  }
+  const stickActive = rawX !== 0 || rawY !== 0;
+  if (modifierPressed && stickActive && stickMapping?.modified && stickMapping.modified !== 'NONE' && stickMapping.modified !== stickMapping.primary) {
+    modifierUsedThisHold = true;
+  }
+  
+  if (target === 'LEFT_STICK') {
+    state.axes.leftX = rawX;
+    state.axes.leftY = rawY;
+  } else if (target === 'RIGHT_STICK') {
+    state.axes.rightX = rawX;
+    state.axes.rightY = rawY;
+  } else if (target === 'DPAD') {
+    // Threshold for D-Pad
+    const threshold = 0.5;
+    if (rawY > threshold) state.axes.dpadY = 1;
+    if (rawY < -threshold) state.axes.dpadY = -1;
+    if (rawX > threshold) state.axes.dpadX = 1;
+    if (rawX < -threshold) state.axes.dpadX = -1;
+  }
+  
   return state;
 };
 
